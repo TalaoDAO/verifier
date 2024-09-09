@@ -1,0 +1,50 @@
+{
+    "0001": {
+        "description": "Basic verifier for test with PID with first name, last name and birthdate. DIIP V3 profile",
+        "application_client_secret": "0001",
+        "oidc4vc": {
+            "request_uri_parameter_supported": true,
+            "request_parameter_supported": false,
+            "presentation_definition_uri": false,
+            "prefix": "openid-vc://",
+            "jarm": false,
+            "client_id_scheme": "did",
+            "did": "did:web:app.altme.io:issuer",
+            "verificationMethod": "did:web:app.altme.io:issuer#key-4",
+            "jwk": {
+                "crv": "P-256",
+                "d": "TR_xKAOWdFcAH7AT303sHGqMIdRJKArn9QjMglaAmj4",
+                "kty": "EC",
+                "x": "ig7Enz4ZROsj3amXJNypX4fnVGqJ_9HlNnhoaCdxaYU",
+                "y": "GDep0hIdif0kMqIeaYFV1iCjkVRJ3cGzVnvq2LwST_c"
+            },
+            "verifier_landing_page": "verifier_qrcode_test.html",
+            "presentation_definition_file": "presentation-definition/pid.json",
+            "verifier_metadata_file": "verifier_metadata.json"
+        }
+    },
+    "0002": {
+        "description": "Basic verifier for test with PID with first name, last name and birthdate. DIIP V3 profile",
+        "application_client_secret": "0002",
+        "oidc4vc": {
+            "request_uri_parameter_supported": true,
+            "request_parameter_supported": false,
+            "presentation_definition_uri": false,
+            "prefix": "openid-vc://",
+            "jarm": false,
+            "client_id_scheme": "redirect_uri",
+            "did": "did:web:app.altme.io:issuer",
+            "verificationMethod": "did:web:app.altme.io:issuer#key-4",
+            "jwk": {
+                "crv": "P-256",
+                "d": "TR_xKAOWdFcAH7AT303sHGqMIdRJKArn9QjMglaAmj4",
+                "kty": "EC",
+                "x": "ig7Enz4ZROsj3amXJNypX4fnVGqJ_9HlNnhoaCdxaYU",
+                "y": "GDep0hIdif0kMqIeaYFV1iCjkVRJ3cGzVnvq2LwST_c"
+            },
+            "verifier_landing_page": "verifier_qrcode_test.html",
+            "presentation_definition_file": "presentation-definiton/pid.json",
+            "verifier_metadata_file": "verifier_metadata.json"
+        }
+    }
+}

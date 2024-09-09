@@ -1,0 +1,41 @@
+{
+    "response_types_supported": [
+        "vp_token"
+    ],
+    "response_modes_supported": [
+        "query"
+    ],
+    "subject_types_supported": [
+        "public"
+    ],
+    "vp_formats": {
+        "vc+sd-jwt": {
+            "sd-jwt_alg_values": [
+                "ES256",
+                "ES256K",
+                "EdDSA",
+                "RS256"
+            ],
+            "kb-jwt_alg_values": [
+                "ES256",
+                "ES256K",
+                "EdDSA",
+                "RS256"
+            ]
+        }
+    },
+    "subject_syntax_types_supported": [
+        "urn:ietf:params:oauth:jwk-thumbprint", 
+        "did:key",
+        "did:jwk",
+        "did:ebsi"
+    ],
+    "subject_syntax_types_discriminations": [
+        "did:key:jwk_jcs-pub",
+        "did:ebsi:v1"
+    ],
+    "subject_trust_frameworks_supported": [
+        "ebsi"
+    ],
+    "client_name": "Talao PID Verifier V 0.1"
+}

@@ -1,0 +1,14 @@
+
+redis
+Flask-Session
+Flask[async]
+Flask-QRcode
+jwcrypto
+gunicorn
+base58
+requests
+Flask-Mobility
+pkce
+gevent
+py-multibase
+py-multicodec
