@@ -1,4 +1,4 @@
-
+Flask
 redis
 Flask-Session
 Flask[async]
@@ -10,5 +10,4 @@ requests
 Flask-Mobility
 pkce
 gevent
-py-multibase
-py-multicodec
+
