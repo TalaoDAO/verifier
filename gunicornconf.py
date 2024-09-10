@@ -1,3 +1,5 @@
+worker_class = 'gevent'
+
 workers=5
 loglevel="info"
 errorlog="-"
