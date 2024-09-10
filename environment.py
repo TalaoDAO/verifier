@@ -20,7 +20,7 @@ class currentMode():
 	def __init__(self, myenv):
 		self.myenv = myenv
 		if self.myenv == 'aws':
-			self.server = 'https://talao.co/'
+			self.server = 'https://verifier.wallet-provider.com/'
 		elif self.myenv == 'local':
 			self.flaskserver = extract_ip()
 			self.server = 'http://' + self.flaskserver + ':3000/'
