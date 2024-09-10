@@ -3,8 +3,8 @@ from flask import Flask, request, jsonify, redirect
 
 app = Flask(__name__)
 
-verifier = "http://192.168.2.115:3000"
-callback = "http://192.168.2.115:4000/callback"
+verifier = "http://192.168.1.156:3000"
+callback = "http://192.168.1.156:4000/callback"
 
 
 @app.route("/test1", methods=['GET'])
@@ -29,4 +29,4 @@ def verifier_callback():
 
 # MAIN entry point. Flask http server
 if __name__ == '__main__':
-    app.run(host="192.168.2.115", port=4000, debug=True)
+    app.run(host="192.168.1.156", port=4000, debug=True)

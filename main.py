@@ -594,8 +594,8 @@ def login_qrcode():
         presentation_definition=json.dumps(presentation_definition, indent=4),
         client_metadata=json.dumps(verifier_metadata, indent=4),
         stream_id=stream_id,
-        page_title='Verifier V 0.1',
-        page_subtitle='Talao',
+        page_title=verifier_data["oidc4vc"].get('page_title', ""),
+        page_subtitle=verifier_data["oidc4vc"].get('page_subtitle', ""),
         code=request.args['code']
     )
 
