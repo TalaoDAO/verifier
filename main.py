@@ -768,7 +768,7 @@ def login_followup():
     return redirect('/verifier/app/authorize?' + urlencode(resp))
 
 
-@app.route('/verifier/wallet/stream')
+@app.route('/verifier/wallet/stream', methods=['GET'])
 def login_stream():
     def login_event_stream():
         pubsub = red.pubsub()

@@ -12,7 +12,7 @@ def login_test1():
     client_id = "0001"
     url = verifier + "/verifier/app/authorize?client_id=" + client_id + "&scope=openid&response_type=id_token&response_mode=query&redirect_uri=" + callback
     return redirect(url)
-
+# https://verifier.wallet-provider.com/verifier/app/authorize?client_id=0001&scope=openid&response_type=id_token&response_mode=query&redirect_uri=https://talao.io
 
 @app.route("/test2", methods=['GET'])
 def login_test2():
