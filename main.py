@@ -25,6 +25,8 @@ CODE_LIFE = 2000
 # wallet
 QRCODE_LIFE = 2000
 
+VERSION = "1.0"
+
 # OpenID key of the OP for customer application
 key = json.load(open("keys.json", "r"))['RSA_key']
 key = jwk.JWK(**key)
@@ -39,7 +41,7 @@ mode = environment.currentMode(myenv)
 red = redis.Redis(host='localhost', port=6379, db=0)
 
 app = Flask(__name__) 
-app.jinja_env.globals['Version'] = "0.1"
+app.jinja_env.globals['Version'] = VERSION
 app.jinja_env.globals['Created'] = time.ctime(os.path.getctime('main.py'))
 app.config['SESSION_PERMANENT'] = True
 app.config['SESSION_COOKIE_NAME'] = 'verifier'
@@ -63,6 +65,8 @@ def get_verifier_data(verifier_id: str) -> dict:
 
 def init_app(app):
     # endpoints for OpenId customer application
+    app.add_url_rule('/',  view_func=hello, methods=['GET'])
+
     app.add_url_rule('/verifier/app/authorize',  view_func=authorize, methods=['GET', 'POST'])
     app.add_url_rule('/verifier/app/token',  view_func=token, methods=['GET', 'POST'])
     app.add_url_rule('/verifier/app/logout',  view_func=logout, methods=['GET', 'POST'])
@@ -79,6 +83,11 @@ def init_app(app):
     app.add_url_rule('/verifier/wallet/stream',  view_func=login_stream)
     return
     
+
+def hello():
+    return jsonify(VERSION)
+
+
 
 def build_id_token(client_id, vp_token, nonce):
     """
