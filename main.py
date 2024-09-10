@@ -30,7 +30,8 @@ key = json.load(open("keys.json", "r"))['RSA_key']
 key = jwk.JWK(**key)
 public_key = key.export(private_key=False, as_dict=True)
 
-if not os.getenv('MYENV'):
+myenv = os.getenv('MYENV')
+if not myenv:
     myenv = 'local'
 mode = environment.currentMode(myenv)
 
