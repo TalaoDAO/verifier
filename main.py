@@ -62,29 +62,9 @@ def get_verifier_data(verifier_id: str) -> dict:
     except Exception:
         logging.warning("verifier does not exist")
         return {}
-
-
-def init_app(app):
-    # endpoints for OpenId customer application
-    app.add_url_rule('/',  view_func=hello, methods=['GET'])
-
-    app.add_url_rule('/verifier/app/authorize',  view_func=authorize, methods=['GET', 'POST'])
-    app.add_url_rule('/verifier/app/token',  view_func=token, methods=['GET', 'POST'])
-    app.add_url_rule('/verifier/app/logout',  view_func=logout, methods=['GET', 'POST'])
-    app.add_url_rule('/verifier/app/userinfo',  view_func=userinfo, methods=['GET', 'POST'])
-    app.add_url_rule('/verifier/app/.well-known/openid-configuration', view_func=openid_configuration, methods=['GET'])
-    app.add_url_rule('/verifier/app/jwks.json', view_func=jwks, methods=['GET'])
-    
-    # endpoints for wallet
-    app.add_url_rule('/verifier/wallet',  view_func=login_qrcode, methods=['GET', 'POST'])
-    app.add_url_rule('/verifier/wallet/response/<stream_id>', view_func=response_endpoint, methods=['POST']) # redirect_uri for POST
-    app.add_url_rule('/verifier/wallet/request_uri/<stream_id>', view_func=request_uri, methods=['GET', 'POST'])
-    app.add_url_rule('/verifier/wallet/presentation_definition_uri/<verifier_id>', view_func=presentation_definition_uri, methods=['GET'])
-    app.add_url_rule('/verifier/wallet/followup',  view_func=login_followup, methods=['GET'])
-    app.add_url_rule('/verifier/wallet/stream',  view_func=login_stream)
-    return
     
 
+@app.route('/', methods=['GET'])
 def hello():
     print("hello")
     return jsonify("hello")
@@ -135,11 +115,13 @@ def build_id_token(client_id, vp_token, nonce):
     return application_token.serialize()
 
 
+@app.route('/verifier/app/jwks.json', methods=['GET'])
 def jwks():
     return jsonify({"keys": [public_key]})
 
 
 # For customer app
+@app.route('/verifier/app/.well-known/openid-configuration', methods=['GET'])
 def openid_configuration():
     return {
         "issuer": mode.server + 'verifier/app',
@@ -165,6 +147,7 @@ id_token -> implicit flow
 """
 
 
+@app.route('/verifier/app/authorize',  methods=['GET', 'POST'])
 def authorize():
     logging.info("authorization endpoint request  = %s", request.args)
     """ 
@@ -284,6 +267,7 @@ def authorize():
 
 
 # token endpoint for customer application
+@app.route('/verifier/app/token', methods=['GET', 'POST'])
 def token():
     #https://datatracker.ietf.org/doc/html/rfc6749#section-5.2
     logging.info("token endpoint request ")
@@ -386,6 +370,7 @@ def token():
 
 # logout endpoint
 #https://openid.net/specs/openid-connect-rpinitiated-1_0-02.html
+@app.route('/verifier/app/logout', methods=['GET', 'POST'])
 def logout():
     if not session.get('verified'):
         return jsonify('Forbidden'), 403
@@ -402,6 +387,7 @@ def logout():
     return redirect(post_logout_redirect_uri)
 
 
+@app.route('/verifier/app/userinfo', methods=['GET', 'POST'])
 def userinfo():
     logging.info("user info endpoint request")
     try:
@@ -481,6 +467,7 @@ def build_verifier_metadata(verifier_id) -> dict:
     return verifier_metadata
 
 
+@app.route('/verifier/wallet/presentation_definition_uri/<verifier_id>',  methods=['GET'])
 def presentation_definition_uri(verifier_id):
     verifier_data = get_verifier_data(verifier_id)
     try:
@@ -489,7 +476,8 @@ def presentation_definition_uri(verifier_id):
         return jsonify('Request timeout'), 408
     return jsonify(presentation_definition)
 
-                                        
+
+@app.route('/verifier/wallet', methods=['GET', 'POST'])
 def login_qrcode():
     stream_id = str(uuid.uuid1())
     try:
@@ -612,6 +600,7 @@ def login_qrcode():
     )
 
 
+@app.route('/verifier/wallet/request_uri/<stream_id>', methods=['GET', 'POST'])
 def request_uri(stream_id):
     """
     Request URI
@@ -644,6 +633,7 @@ def request_uri(stream_id):
     return Response(request_as_jwt, headers=headers)
 
 
+@app.route('/verifier/wallet/response/<stream_id>',  methods=['POST']) # redirect_uri for POST
 def response_endpoint(stream_id):
     logging.info("Enter wallet response endpoint")
 
@@ -738,6 +728,7 @@ def response_endpoint(stream_id):
     return jsonify(response), status_code
 
 
+@app.route('/verifier/wallet/followup',  methods=['GET'])
 def login_followup():
     """
     check if user is connected or not and redirect data to authorization server
@@ -777,6 +768,7 @@ def login_followup():
     return redirect('/verifier/app/authorize?' + urlencode(resp))
 
 
+@app.route('/verifier/wallet/stream')
 def login_stream():
     def login_event_stream():
         pubsub = red.pubsub()
@@ -791,7 +783,6 @@ def login_stream():
 
 
 if __name__ == '__main__':
-    init_app(app)
     app.run(host=mode.flaskserver,
             port=mode.port,
             debug=True,
