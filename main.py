@@ -37,6 +37,7 @@ if not myenv:
     myenv = 'local'
 mode = environment.currentMode(myenv)
 
+
 # Redis init red = redis.StrictRedis()
 red = redis.Redis(host='localhost', port=6379, db=0)
 
@@ -85,7 +86,8 @@ def init_app(app):
     
 
 def hello():
-    return jsonify(VERSION)
+    print("hello")
+    return jsonify("hello")
 
 
 
