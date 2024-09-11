@@ -15,6 +15,7 @@ import environment
 import redis
 import os
 import time
+import sys
 
 logging.basicConfig(level=logging.INFO)
 
@@ -528,7 +529,12 @@ def login_qrcode():
     
     # presentation definition
     presentation_definition_file = verifier_data["oidc4vc"]["presentation_definition_file"]
-    presentation_definition = json.load(open(presentation_definition_file, 'r'))    
+    print(presentation_definition_file)
+    try:
+        presentation_definition = json.load(open(presentation_definition_file, 'r'))    
+    except:
+        logging.error("presentation file not found")
+        sys.exit()
     if verifier_data["oidc4vc"]['presentation_definition_uri']:
         presentation_definition_uri = mode.server + 'verifier/wallet/presentation_definition_uri/' + verifier_id
     
