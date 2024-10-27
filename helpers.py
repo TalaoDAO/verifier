@@ -9,7 +9,7 @@ def get_payload_from_token(token) -> dict:
     return json.loads(base64.urlsafe_b64decode(payload).decode())
 
 
-def get_header_from_token(token):
+def get_header_from_token(token) -> dict:
     if not token:
         return {}
     header = token.split('.')[0]

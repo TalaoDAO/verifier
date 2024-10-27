@@ -1,0 +1,33 @@
+{
+    "id": "phone_1",
+    "input_descriptors": [
+        {
+            "id": "phone_1_1",
+            "constraints": {
+                "fields": [
+                    {
+                        "path": [
+                            "$.vc.credentialSubject.phone"
+                        ]
+                    }
+                ]
+            }
+        }
+    ],
+    "format": {
+        "jwt_vp_json": {
+            "alg": [
+                "ES256k",
+                "ES256",
+                "EdDSA"
+            ]
+        },
+        "jwt_vc_json": {
+            "alg": [
+                "ES256k",
+                "ES256",
+                "EdDSA"
+            ]
+        }
+    }
+}

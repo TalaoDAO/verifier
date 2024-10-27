@@ -1,6 +1,7 @@
 {
     "response_types_supported": [
-        "vp_token"
+        "vp_token",
+        "id_token"
     ],
     "response_modes_supported": [
         "query"
@@ -13,29 +14,19 @@
             "sd-jwt_alg_values": [
                 "ES256",
                 "ES256K",
-                "EdDSA",
-                "RS256"
+                "EdDSA"
             ],
             "kb-jwt_alg_values": [
                 "ES256",
                 "ES256K",
-                "EdDSA",
-                "RS256"
+                "EdDSA"
             ]
         }
     },
     "subject_syntax_types_supported": [
         "urn:ietf:params:oauth:jwk-thumbprint", 
         "did:key",
-        "did:jwk",
-        "did:ebsi"
+        "did:jwk"
     ],
-    "subject_syntax_types_discriminations": [
-        "did:key:jwk_jcs-pub",
-        "did:ebsi:v1"
-    ],
-    "subject_trust_frameworks_supported": [
-        "ebsi"
-    ],
-    "client_name": "Talao PID Verifier V 0.1"
+    "client_name": "Talao Verifier V 0.1"
 }

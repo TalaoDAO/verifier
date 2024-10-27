@@ -15,7 +15,7 @@ import environment
 import redis
 import os
 import time
-import sys
+
 
 logging.basicConfig(level=logging.INFO)
 
@@ -67,12 +67,11 @@ def get_verifier_data(verifier_id: str) -> dict:
 
 @app.route('/', methods=['GET'])
 def hello():
-    print("hello")
     return jsonify("hello")
 
 
 
-def build_id_token(client_id, vp_token, nonce):
+def build_id_token(client_id, vp_token, nonce, vp_format):
     """
     Build an Id_token for application 
     """
@@ -92,23 +91,33 @@ def build_id_token(client_id, vp_token, nonce):
     }
     if nonce:
         payload['nonce'] = nonce
-    vcsd = vp_token.split("~")
-    vcsd_jwt_payload = helpers.get_payload_from_token(vcsd[0])
-    payload['vc'] = {
-        "iss": vcsd_jwt_payload['iss'],
-        "iat": vcsd_jwt_payload['iat'],
-        "exp": vcsd_jwt_payload['iat'],
-        "cnf": vcsd_jwt_payload['cnf'],
-        "status": vcsd_jwt_payload['status'],
-        "vct": vcsd_jwt_payload['vct']
-    }
-    #vcsd_jwt_header = helpers.get_header_from_token(vcsd[0])
-    for i in range(1, len(vcsd)-1):
-        disclosure = vcsd[i]
-        disclosure += "=" * ((4 - len(vcsd[i]) % 4) % 4)    
-        disclosure = base64.urlsafe_b64decode(disclosure.encode()).decode()
-        disclosure = json.loads(disclosure)
-        payload["vc"][disclosure[1]] = disclosure[2]
+    
+    if vp_format == "vc+sd-jwt":
+        vcsd = vp_token.split("~")
+        vcsd_jwt_payload = helpers.get_payload_from_token(vcsd[0])
+        payload['vc'] = {
+            "iss": vcsd_jwt_payload['iss'],
+            "iat": vcsd_jwt_payload['iat'],
+            "exp": vcsd_jwt_payload['iat'],
+            "cnf": vcsd_jwt_payload['cnf'],
+            "status": vcsd_jwt_payload['status'],
+            "vct": vcsd_jwt_payload['vct']
+        }
+        #vcsd_jwt_header = helpers.get_header_from_token(vcsd[0])
+        for i in range(1, len(vcsd)-1):
+            disclosure = vcsd[i]
+            disclosure += "=" * ((4 - len(vcsd[i]) % 4) % 4)    
+            disclosure = base64.urlsafe_b64decode(disclosure.encode()).decode()
+            disclosure = json.loads(disclosure)
+            payload["vc"][disclosure[1]] = disclosure[2]
+    else:
+        vp_token = helpers.get_payload_from_token(vp_token)
+        vc_token = vp_token["vp"]["verifiableCredential"][0]
+        vc_token = helpers.get_payload_from_token(vc_token)
+        if email := vc_token["vc"]["credentialSubject"].get('email'):
+            payload["email"] = email
+        elif phone := vp_token["vp"]["credentialSubject"].get('phone'):
+            payload['phone'] = phone
         
     logging.info("ID token payload = %s", payload)
     application_token = jwt.JWT(header=header, claims=payload, algs=[helpers.alg(key)])
@@ -131,7 +140,7 @@ def openid_configuration():
         "userinfo_endpoint": mode.server + 'verifier/app/userinfo',
         "logout_endpoint": mode.server + 'verifier/app/logout',
         "jwks_uri": mode.server + 'verifier/app/jwks.json',
-        "scopes_supported": ["openid"],
+        "scopes_supported": ["openid", "pid", "email"],
         "response_types_supported": ["code", "id_token"],
         "token_endpoint_auth_methods_supported": [
             "client_secret_basic",
@@ -150,8 +159,7 @@ id_token -> implicit flow
 
 @app.route('/verifier/app/authorize',  methods=['GET', 'POST'])
 def authorize():
-    logging.info("authorization endpoint request  = %s", request.args)
-    """ 
+    """     
     https://www.rfc-editor.org/rfc/rfc6749.html#section-4.1.2
     code_wallet_data = 
     {
@@ -192,10 +200,7 @@ def authorize():
                 redirect_uri = code_data['redirect_uri']
                 session.clear()
                 return redirect(redirect_uri + sep + urlencode(resp)) 
-            id_token = build_id_token(
-                code_data['client_id'],
-                code_wallet_data['vp_token_payload'],
-                code_data['nonce'])
+            id_token = build_id_token(code_data['client_id'],code_wallet_data['vp_token_payload'],code_data['nonce'],code_wallet_data['vp_format'])
             resp = {"id_token": id_token} 
             redirect_url = code_data['redirect_uri'] + sep + urlencode(resp)
             return redirect(redirect_url)
@@ -225,10 +230,9 @@ def authorize():
         session.clear()
         resp = {'error': msg}
         return redirect(request.args['redirect_uri'] + '?' + urlencode(resp))
-
+        
     session['verified'] = False
     logging.info('user is not connected in OP')
-    # PKCE https://datatracker.ietf.org/doc/html/draft-ietf-oauth-spop-14
     try:
         data = {
             'client_id': request.args['client_id'],  # required
@@ -250,7 +254,6 @@ def authorize():
             session.clear()
             return jsonify('request malformed'), 400
     verifier_data = get_verifier_data(request.args['client_id'])
-    print("verifier data = ", verifier_data)
     if not verifier_data:
         logging.warning('client_id not found in verifier database')
         return manage_error_request("unauthorized_client")
@@ -342,10 +345,7 @@ def token():
     except Exception:
         logging.error("redis get problem to get code_wallet_data")
         return manage_error("invalid_grant")
-    id_token = build_id_token(
-                code_data['client_id'],
-                code_wallet_data['vp_token_payload'],
-                code_data['nonce'])
+    id_token = build_id_token(code_data['client_id'], code_wallet_data['vp_token_payload'], code_data['nonce'], code_wallet_data['vp_format'])
     access_token = str(uuid.uuid1())
     endpoint_response = {
         "id_token": id_token,
@@ -482,15 +482,13 @@ def presentation_definition_uri(verifier_id):
 def login_qrcode():
     stream_id = str(uuid.uuid1())
     try:
-        code_data = red.get(request.args['code']).decode()
+        code_data = json.loads(red.get(request.args['code']).decode())
     except Exception:
         logging.error("session expired in login_qrcode")
         return render_template("verifier_session_problem.html", message='Session expired')
     
-    verifier_id = json.loads(code_data)['client_id']
+    verifier_id = code_data['client_id']
     verifier_data = get_verifier_data(verifier_id)
-    nonce = json.loads(code_data).get('nonce')
-    nonce = nonce or str(uuid.uuid1())
     redirect_uri = mode.server + "verifier/wallet/response/" + stream_id
     
     # Set client_id, request jwt iss and key
@@ -517,32 +515,31 @@ def login_qrcode():
         "client_id_scheme": verifier_data["oidc4vc"]['client_id_scheme'],
         "client_id": client_id,
         "aud": 'https://self-issued.me/v2',
-        "nonce": nonce,
-        "client_metadata": verifier_metadata
+        "nonce": code_data.get('nonce') or str(uuid.uuid1()),
+        "client_metadata": verifier_metadata,
+        "response_mode": verifier_data["oidc4vc"]['response_mode']
     }
-
-    if verifier_data["oidc4vc"]['jarm']:
-        authorization_request["response_mode"] = "direct_post.jwt"
-    else:
-        authorization_request["response_mode"] = "direct_post"
-
     
     # presentation definition
-    presentation_definition_file = verifier_data["oidc4vc"]["presentation_definition_file"]
-    print(presentation_definition_file)
-    try:
-        presentation_definition = json.load(open(presentation_definition_file, 'r'))    
-    except:
-        logging.error("presentation file not found")
-        sys.exit()
-    if verifier_data["oidc4vc"]['presentation_definition_uri']:
-        presentation_definition_uri = mode.server + 'verifier/wallet/presentation_definition_uri/' + verifier_id
-    
-    if not verifier_data["oidc4vc"]['presentation_definition_uri']:
-        if verifier_data["oidc4vc"]['request_uri_parameter_supported']:
-            authorization_request['presentation_definition'] = presentation_definition
+    if "pid" in code_data["scope"]:
+        presentation_definition = json.load(open('presentation-definition/pid.json', 'r'))
+    elif "email" in code_data["scope"]:
+        presentation_definition = json.load(open('presentation-definition/email.json', 'r'))
+    elif "phone" in code_data["scope"]:
+        presentation_definition = json.load(open('presentation-definition/phone.json', 'r'))
     else:
+        presentation_definition_file = verifier_data["oidc4vc"].get("presentation_definition_file")
+        if not presentation_definition_file:
+            presentation_definition = json.load(open('presentation-definition/pid.json', 'r'))
+        else:
+            presentation_definition = json.load(open(presentation_definition_file, 'r'))    
+
+    presentation_definition_uri = mode.server + 'verifier/wallet/presentation_definition_uri/' + verifier_id    
+    if verifier_data["oidc4vc"]['presentation_definition_uri']:
         authorization_request['presentation_definition_uri'] = presentation_definition_uri
+    else:
+        if verifier_data["oidc4vc"]['request_uri_parameter_supported']:
+            authorization_request['presentation_definition'] = presentation_definition 
 
     # store data
     data = { 
@@ -639,6 +636,19 @@ def request_uri(stream_id):
     return Response(request_as_jwt, headers=headers)
 
 
+def provide_format(vp, type="vp"):
+    if not vp:
+        return "no token"
+    elif isinstance(vp, dict):
+        vp = json.dumps(vp)
+    if vp[:1] == "{":
+        return "ldp_" + type
+    elif len(vp.split("~")) > 1:
+        return "vc+sd-jwt"
+    else:
+        return "jwt_" + type + "_json"
+    
+
 @app.route('/verifier/wallet/response/<stream_id>',  methods=['POST']) # redirect_uri for POST
 def response_endpoint(stream_id):
     logging.info("Enter wallet response endpoint")
@@ -683,7 +693,8 @@ def response_endpoint(stream_id):
         access = False
         
     # check vp_token
-    if vp_token:
+    vp_format = provide_format(vp_token)
+    if vp_token and vp_format == "vc+sd-jwt":
         vcsd_jwt = vp_token.split("~")
         nb_disclosure = len(vcsd_jwt)
         logging.info("nb of disclosure = %s", nb_disclosure - 2 )
@@ -699,6 +710,8 @@ def response_endpoint(stream_id):
                 logging.error("i = %s", i)
                 logging.error("_disclosure excluded = %s", _disclosure)
         logging.info("vp token signature not checked yet")
+    if vp_token and vp_format == "jwt_vp_json":
+        pass
         
     detailed_response = {
         "created": datetime.timestamp(datetime.now()),
@@ -723,12 +736,17 @@ def response_endpoint(stream_id):
     logging.info("response detailed = %s", json.dumps(detailed_response, indent=4))
     
     # follow up
-    wallet_data = json.dumps({
+    wallet_data = {
         "access": access,
         "vp_token_payload": vp_token,
-        "sub": helpers.get_payload_from_token(vcsd_jwt[0])['iss']
-    })
-    red.setex(stream_id + "_wallet_data", CODE_LIFE, wallet_data)
+        "vp_format": vp_format,
+    }
+    if vp_format == "vc+sd-jwt":
+        wallet_data["sub"] = helpers.get_payload_from_token(vcsd_jwt[0])['iss']
+    else:
+        wallet_data["sub"] = helpers.get_payload_from_token(vp_token)['iss']
+        
+    red.setex(stream_id + "_wallet_data", CODE_LIFE, json.dumps(wallet_data))
     event_data = json.dumps({"stream_id": stream_id})         
     red.publish('verifier', event_data)
     return jsonify(response), status_code
