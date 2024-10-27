@@ -811,8 +811,13 @@ def login_stream():
 def callback():
     id_token = request.args['id_token']
     id_token = helpers.get_payload_from_token(id_token)
-    email = id_token['email']
-    return render_template("welcome.html", page_title="Welcome !", page_subtitle=email)
+    if email := id_token.get('email'):
+        return render_template("welcome.html", page_title="Welcome !", page_subtitle=email)
+    if id_token.get("vc"):
+        name = id_token["vc"]["given_name"] + " " + id_token["vc"]["family_name"]
+        return render_template("welcome.html", page_title="Welcome !",page_subtitle=name)
+
+
 
 
 if __name__ == '__main__':
