@@ -806,6 +806,15 @@ def login_stream():
     return Response(login_event_stream(), headers=headers)
 
 
+# For demo
+@app.route('/callback', methods=['GET'])
+def callback():
+    id_token = request.args['id_token']
+    id_token = helpers.get_payload_from_token(id_token)
+    email = id_token['email']
+    return render_template("welcome.html", page_title="Welcome !", page_subtitle=email)
+
+
 if __name__ == '__main__':
     app.run(host=mode.flaskserver,
             port=mode.port,
