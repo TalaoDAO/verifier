@@ -4,7 +4,7 @@ from flask_mobility import Mobility
 import json
 import uuid
 from datetime import timedelta, datetime
-from urllib.parse import urlencode, quote, unquote
+from urllib.parse import urlencode, quote
 import logging
 import base64
 from jwcrypto import jwk, jwt
@@ -81,7 +81,6 @@ def build_id_token(client_id, vp_token, nonce, vp_format):
         "kid": key['kid'],
         "alg": helpers.alg(key)
     }
-    # https://openid.net/specs/openid-connect-core-1_0.html#StandardClaims
     payload = {
         "iss": mode.server + 'verifier/app',
         "iat": datetime.timestamp(datetime.now()),
@@ -118,6 +117,7 @@ def build_id_token(client_id, vp_token, nonce, vp_format):
             payload["email"] = email
         elif phone := vp_token["vp"]["credentialSubject"].get('phone'):
             payload['phone'] = phone
+        payload['sub'] = vp_token.get('sub')
         
     logging.info("ID token payload = %s", payload)
     application_token = jwt.JWT(header=header, claims=payload, algs=[helpers.alg(key)])
@@ -590,16 +590,11 @@ def login_qrcode():
     return render_template(
         verifier_data["oidc4vc"]['verifier_landing_page'],
         url=url,
-        request_uri_header=json.dumps(helpers.get_header_from_token(request_as_jwt), indent = 4),
-        request_uri_payload=json.dumps(helpers.get_payload_from_token(request_as_jwt), indent = 4),
-        request_uri=request_as_jwt,
-        url_json= unquote(url),
-        presentation_definition=json.dumps(presentation_definition, indent=4),
-        client_metadata=json.dumps(verifier_metadata, indent=4),
         stream_id=stream_id,
         page_title=verifier_data["oidc4vc"].get('page_title', ""),
         page_subtitle=verifier_data["oidc4vc"].get('page_subtitle', ""),
-        code=request.args['code']
+        code=request.args['code'],
+        navbar=verifier_data["oidc4vc"].get('navbar')
     )
 
 
@@ -744,7 +739,7 @@ def response_endpoint(stream_id):
     if vp_format == "vc+sd-jwt":
         wallet_data["sub"] = helpers.get_payload_from_token(vcsd_jwt[0])['iss']
     else:
-        wallet_data["sub"] = helpers.get_payload_from_token(vp_token)['iss']
+        wallet_data["sub"] = helpers.get_payload_from_token(vp_token)['sub']
         
     red.setex(stream_id + "_wallet_data", CODE_LIFE, json.dumps(wallet_data))
     event_data = json.dumps({"stream_id": stream_id})         
