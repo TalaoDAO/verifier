@@ -106,6 +106,7 @@ def login_qrcode(client_id):
         "response_mode": 'direct_post',
         "presentation_definition": request.json['presentation_definition']
     }
+    logging.info("authorization request = %s", json.dumps(authorization_request, indent=4) )
     if request.json.get("state"):
         authorization_request["steate"] = request.json.get("state")
         
@@ -128,6 +129,7 @@ def login_qrcode(client_id):
         }
     QRcode = "openid-vc://" + '?' + urlencode(authorization_request_displayed)
     print(QRcode)
+    print("authorization request = ", authorization_request_displayed)
     return jsonify({"QRcode": QRcode})
 
 
@@ -224,6 +226,7 @@ def response_endpoint(stream_id):
     
     headers = {'Content-Type': 'application/json'}
     requests.post(data['webhook'], headers=headers, json=response) 
+    red.delete(stream_id)
     return jsonify('ok')
 
 
