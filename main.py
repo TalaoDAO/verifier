@@ -1,8 +1,8 @@
-from flask import Flask, redirect, request, session, jsonify, Response, render_template
+from flask import Flask, request,  jsonify, Response
 import json
 import uuid
-from datetime import timedelta, datetime
-from urllib.parse import urlencode, quote
+from datetime import datetime
+from urllib.parse import urlencode
 import logging
 import base64
 from jwcrypto import jwk, jwt
@@ -16,7 +16,7 @@ import requests
 
 logging.basicConfig(level=logging.INFO)
 
-VERSION = "2.0"
+VERSION = "2.1"
 
 
 myenv = os.getenv('MYENV')
@@ -88,6 +88,7 @@ def build_jwt_request(key, kid, authorization_request) -> str:
 
 @app.route('/verifier/<client_id>', methods=['GET', 'POST'])
 def login_qrcode(client_id):
+    logging.info(request.form)
     client_data = get_verifier_data(client_id)
     if request.headers["X-API-Key"] != client_data["X-API-Key"]:
         return jsonify("error api key"), 400
@@ -117,7 +118,8 @@ def login_qrcode(client_id):
     payload = {
         "request_as_jwt": request_as_jwt,
         "webhook": request.json['webhook'],
-        "nonce": nonce
+        "nonce": nonce,
+        "state": request.json['state']
     }
     red.setex(stream_id, 1000, json.dumps(payload))
     authorization_request_displayed = { 
@@ -216,7 +218,8 @@ def response_endpoint(stream_id):
         "created": datetime.timestamp(datetime.now()),
         "signature": signature, # bool
         "validity": validity, # bool
-        "claims": claims
+        "claims": claims,
+        "state": data['state']
     }     
     
     headers = {'Content-Type': 'application/json'}
