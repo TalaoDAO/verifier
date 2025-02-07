@@ -70,7 +70,12 @@ def verif_token(token, nonce, aud=None):
             resp = requests.get(url)
             api_response = resp.json()
             dict_key = None
-            for key in api_response.get('jwks')['keys']:
+            if api_response.get('jwks'):
+                keys = api_response.get('jwks')['keys']
+            else:
+                resp = requests.get(api_response.get('jwks_uri'))
+                keys = resp.json()['keys']
+            for key in keys:
                 if key['kid'] == header.get('kid'):
                     dict_key = key
                     break

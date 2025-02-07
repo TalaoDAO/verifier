@@ -161,7 +161,7 @@ def response_endpoint(stream_id):
     # get id_token, vp_token and presentation_submission
     vp_token = request.form.get('vp_token')
     presentation_submission = request.form.get('presentation_submission')
-    print('vp token received = ', vp_token, type(vp_token))
+    logging.info('vp token received = %s', vp_token)
     
     if presentation_submission:
         logging.info('presentation submission received = %s', presentation_submission)
@@ -175,20 +175,18 @@ def response_endpoint(stream_id):
         vp_list.append(vp_token)
     else:
         vp_list = json.loads(vp_token)
-    print("vp list = ", vp_list, type(vp_list))
     claims_list = []
     n = 0
     for vp in vp_list:
         vcsd_jwt = vp.split("~")
         # check signature
-        print("n = ", n)
+        logging.info("sd-jwt number %s", n)
         n += 1
         try:
-            print("sd-jwt = ", vcsd_jwt[0])
             helpers.verif_token(vcsd_jwt[0], False, aud=None)
             signature = True
         except Exception as e:
-            print("error = ", str(e))
+            logging.warning("signature check failed = %s", str(e))
             signature = False
         
         # Check expiration date
@@ -197,11 +195,11 @@ def response_endpoint(stream_id):
             validity = False
         else:
             validity = True
-            
         nb_disclosure = len(vcsd_jwt)
         logging.info("nb of disclosure = %s", nb_disclosure - 2 )
         claims = {}
         claims.update(vcsd_jwt_payload)
+        # clean response to application
         with contextlib.suppress(Exception):
             del claims['_sd']
             del claims['cnf']
@@ -231,6 +229,9 @@ def response_endpoint(stream_id):
         response['raw'] = request.form
     headers = {'Content-Type': 'application/json'}
     requests.post(data['webhook'], headers=headers, json=response) 
+    logging.info("data sent to application = %s", json.dumps(response, indent=4))
+    
+    # desactivate QR code
     red.delete(stream_id)
     return jsonify('ok')
 
