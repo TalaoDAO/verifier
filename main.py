@@ -12,6 +12,7 @@ import environment
 import redis
 import os
 import requests
+import contextlib
 
 
 logging.basicConfig(level=logging.INFO)
@@ -120,7 +121,8 @@ def login_qrcode(client_id):
         "request_as_jwt": request_as_jwt,
         "webhook": request.json['webhook'],
         "nonce": nonce,
-        "state": request.json['state']
+        "state": request.json['state'],
+        "raw": client_data.get('raw')
     }
     red.setex(stream_id, 1000, json.dumps(payload))
     authorization_request_displayed = { 
@@ -138,7 +140,8 @@ def request_uri(stream_id):
     try:
         data = json.loads(red.get(stream_id).decode())
     except Exception:
-        return jsonify("Request timeout"), 408
+        logging.info("request expired or already used")
+        return jsonify("Request timeout"), 400
     request_as_jwt = data["request_as_jwt"]
     headers = {
         "Content-Type": "application/oauth-authz-req+jwt",
@@ -146,19 +149,6 @@ def request_uri(stream_id):
     }
     return Response(request_as_jwt, headers=headers)
 
-
-def provide_format(vp, type="vp"):
-    if not vp:
-        return "no token"
-    elif isinstance(vp, dict):
-        vp = json.dumps(vp)
-    if vp[:1] == "{":
-        return "ldp_" + type
-    elif len(vp.split("~")) > 1:
-        return "vc+sd-jwt"
-    else:
-        return "jwt_" + type + "_json"
-    
 
 @app.route('/verifier/response_uri/<stream_id>',  methods=['POST'])
 def response_endpoint(stream_id):
@@ -171,29 +161,38 @@ def response_endpoint(stream_id):
     # get id_token, vp_token and presentation_submission
     vp_token = request.form.get('vp_token')
     presentation_submission = request.form.get('presentation_submission')
-    logging.info('vp token received = %s', vp_token)
+    print('vp token received = ', vp_token, type(vp_token))
     
     if presentation_submission:
         logging.info('presentation submission received = %s', presentation_submission)
     else:
-        logging.info('No presentation submission received')    
+        logging.info('No presentation submission received')
+        return jsonify('Invalid response format'), 400
         
     # check vp_token
-    vp_format = provide_format(vp_token)
-    if vp_token and vp_format == "vc+sd-jwt":
-        vcsd_jwt = vp_token.split("~")
-        vcsd_jwt_payload = helpers.get_payload_from_token(vcsd_jwt[0])
-        
+    if vp_token[0] == "e":
+        vp_list = []
+        vp_list.append(vp_token)
+    else:
+        vp_list = json.loads(vp_token)
+    print("vp list = ", vp_list, type(vp_list))
+    claims_list = []
+    n = 0
+    for vp in vp_list:
+        vcsd_jwt = vp.split("~")
         # check signature
+        print("n = ", n)
+        n += 1
         try:
-            print(vcsd_jwt[0])
+            print("sd-jwt = ", vcsd_jwt[0])
             helpers.verif_token(vcsd_jwt[0], False, aud=None)
             signature = True
         except Exception as e:
-            print("error = ",e)
+            print("error = ", str(e))
             signature = False
         
         # Check expiration date
+        vcsd_jwt_payload = helpers.get_payload_from_token(vcsd_jwt[0])
         if vcsd_jwt_payload.get('exp') and vcsd_jwt_payload.get('exp') < round(datetime.timestamp(datetime.now())):
             validity = False
         else:
@@ -202,6 +201,14 @@ def response_endpoint(stream_id):
         nb_disclosure = len(vcsd_jwt)
         logging.info("nb of disclosure = %s", nb_disclosure - 2 )
         claims = {}
+        claims.update(vcsd_jwt_payload)
+        with contextlib.suppress(Exception):
+            del claims['_sd']
+            del claims['cnf']
+            del claims['status']
+            del claims['iat']
+            del claims['exp']
+            del claims['_sd_alg']
         for i in range(1, nb_disclosure-1):
             _disclosure = vcsd_jwt[i]
             _disclosure += "=" * ((4 - len(_disclosure) % 4) % 4)
@@ -212,23 +219,20 @@ def response_endpoint(stream_id):
             except Exception:
                 logging.error("i = %s", i)
                 logging.error("_disclosure excluded = %s", _disclosure)
-    else:
-        return jsonify("VP format not supported"), 400
-        
+        claims_list.append(claims)
     response = {
-        "raw": request.form,
         "created": datetime.timestamp(datetime.now()),
         "signature": signature, # bool
         "validity": validity, # bool
-        "claims": claims,
+        "claims": claims_list,
         "state": data['state']
-    }     
-    
+    }
+    if data['raw']:
+        response['raw'] = request.form
     headers = {'Content-Type': 'application/json'}
     requests.post(data['webhook'], headers=headers, json=response) 
     red.delete(stream_id)
     return jsonify('ok')
-
 
 
 if __name__ == '__main__':
