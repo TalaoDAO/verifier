@@ -3,27 +3,31 @@ import json
 from jwcrypto import jwk, jwt
 import requests
 import logging
+from typing import Union
+
 
 logging.basicConfig(level=logging.INFO)
 
 
-def get_payload_from_token(token) -> dict:
-    if not token:
-        return {}
-    payload = token.split('.')[1]
-    payload += "=" * ((4 - len(payload) % 4) % 4) # solve the padding issue of the base64 python lib
-    return json.loads(base64.urlsafe_b64decode(payload).decode())
+def get_payload_from_token(token: str) -> dict:
+    try:
+        payload = token.split('.')[1]
+        payload += "=" * ((4 - len(payload) % 4) % 4) # solve the padding issue of the base64 python lib
+        return json.loads(base64.urlsafe_b64decode(payload).decode())
+    except Exception:
+        raise Exception("incorrect token format")
 
 
-def get_header_from_token(token) -> dict:
-    if not token:
-        return {}
-    header = token.split('.')[0]
-    header += "=" * ((4 - len(header) % 4) % 4) # solve the padding issue of the base64 python lib
-    return json.loads(base64.urlsafe_b64decode(header).decode())
+def get_header_from_token(token: str) -> dict:
+    try:
+        header = token.split('.')[0]
+        header += "=" * ((4 - len(header) % 4) % 4) # solve the padding issue of the base64 python lib
+        return json.loads(base64.urlsafe_b64decode(header).decode())
+    except Exception:
+        raise Exception("incorrect token format")
 
 
-def alg(key):
+def alg(key: Union[str, dict]):
     key = json.loads(key) if isinstance(key, str) else key
     if key['kty'] == 'EC':
         if key['crv'] in ['secp256k1', 'P-256K']:
@@ -45,12 +49,13 @@ def alg(key):
         raise Exception("Key type not supported")
 
 
-def verif_token(token, nonce, aud=None):
+def verif_token(token: str, kb: str, nonce: str, aud:str ):
     header = get_header_from_token(token)
     payload = get_payload_from_token(token)
-    if nonce and payload.get('nonce') != nonce:
+    kb_payload = get_payload_from_token(kb)
+    if nonce and kb_payload.get('nonce') != nonce:
         raise Exception("nonce is incorrect")
-    if aud and payload.get('aud') != aud:
+    if aud and kb_payload.get('aud') != aud:
         raise Exception("aud is incorrect")
     if header.get('jwk'):
         if isinstance(header['jwk'], str):
@@ -67,13 +72,13 @@ def verif_token(token, nonce, aud=None):
             url = scheme + host + '/.well-known/jwt-vc-issuer'
             if path:
                 url = url + path
-            resp = requests.get(url)
+            resp = requests.get(url, timeout=10)
             api_response = resp.json()
             dict_key = None
             if api_response.get('jwks'):
                 keys = api_response.get('jwks')['keys']
             else:
-                resp = requests.get(api_response.get('jwks_uri'))
+                resp = requests.get(api_response.get('jwks_uri'), timeout=10)
                 keys = resp.json()['keys']
             for key in keys:
                 if key['kid'] == header.get('kid'):
@@ -91,12 +96,11 @@ def verif_token(token, nonce, aud=None):
     return True
 
 
-def resolve_did(vm) -> dict:
+def resolve_did(vm: str) -> dict:
     try:
         did = vm.split('#')[0]
     except Exception:
-        logging.error("This verification method is not supported  %s", vm)
-        return 
+        raise Exception("This verification method is not supported ")
     if did.split(':')[1] == "jwk":
         key = did.split(':')[2]
         key += "=" * ((4 - len(key) % 4) % 4)
@@ -122,8 +126,7 @@ def resolve_did(vm) -> dict:
                 r = requests.get(url, timeout=5)
                 logging.info('Access to Public Universal Resolver')
             except Exception:
-                logging.warning('fails to access to both universal resolver')
-                return
+                raise Exception('fails to access to both universal resolver')
         did_document = r.json()
         for verificationMethod in did_document['didDocument']['verificationMethod']:
             if vm == verificationMethod['id'] or '#' + vm.split('#')[1] == verificationMethod['id']:
@@ -137,10 +140,8 @@ def resolve_did(vm) -> dict:
                     return jwk
                 
                 
-def resolve_did_web(did) -> str:
-    if did.split(':')[1] != 'web':
-        return
-    url = 'https://' + did.split(':')[2] 
+def resolve_did_web(did: str) -> str:
+    url = 'https://' + did.split(':')[2]
     i = 3
     try:
         while did.split(':')[i]:
@@ -149,8 +150,8 @@ def resolve_did_web(did) -> str:
     except Exception:
         pass
     url = url + '/did.json'
-    r = requests.get(url)
+    r = requests.get(url, timeout=10)
     if 399 < r.status_code < 500:
         logging.warning('return API code = %s', r.status_code)
-        return "{'error': 'did:web not found on server'}"
+        raise Exception("did:web not found on server")
     return r.json()

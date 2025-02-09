@@ -1,76 +1,213 @@
-from flask import Flask, jsonify, render_template_string, redirect, request
-import flask
-from flask_session import Session
-from flask_pyoidc import OIDCAuthentication
-from flask_pyoidc.provider_configuration import ProviderConfiguration, ClientMetadata
-from flask_pyoidc.user_session import UserSession
+from flask import Flask, jsonify, render_template_string, request, redirect, Response
+import requests
+from flask_qrcode import QRcode
+import uuid
+import socket
 import redis
+import json
 
 
 # Redis init red = redis.StrictRedis()
 red= redis.Redis(host='localhost', port=6379, db=0)
 
+
+
+def extract_ip():
+    st = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:       
+        st.connect(('10.255.255.255', 1))
+        IP = st.getsockname()[0]
+    except Exception:
+        IP = '127.0.0.1'
+    finally:
+        st.close()
+    return IP
+
+
+
+ngrok = "https://929af4a49775.ngrok.app"  # pour test
+ngrok = "http://" + extract_ip() + ":5000"
+verifier = "https://verifier.wallet-provider.com/verifier/"
+verifier = "http://" + extract_ip() + ":3000/verifier/"
+
+
+PRESENTATION_DEFINITION = {
+    "id": "over18_with_limited_disclosure",
+    "input_descriptors": [
+        {
+            "id": "over18",
+            "format": {
+                "vc+sd-jwt": {
+                    "sd-jwt_alg_values": [
+                        "ES256"
+                    ],
+                    "kb-jwt_alg_values": [
+                        "ES256"
+                    ]
+        }
+            },
+            "constraints": {
+                "limit_disclosure": "required",
+                "fields": [
+                    {
+                        "path": [
+                            "$.age_over_18"
+                        ]
+                    }
+                ]
+            }
+        },
+        {
+            "id": "binance_crypto_account_proof",
+            "format": {
+                "vc+sd-jwt": {
+                    "sd-jwt_alg_values": [
+                        "ES256"
+                    ],
+                    "kb-jwt_alg_values": [
+                        "ES256"
+                    ]
+                }
+            },
+            "constraints": {
+                "limit_disclosure": "required",
+                "fields": [
+                    {
+                        "path": [
+                            "$.blockchain"
+                        ]
+                    }
+                ]
+            }
+        }
+    ]
+}
+
+
+OVER18_PRESENTATION_DEFINITION = {
+    "id": "over18_with_limited_disclosure",
+    "input_descriptors": [
+        {
+            "id": "over18",
+            "format": {
+                "vc+sd-jwt": {
+                    "sd-jwt_alg_values": [
+                        "ES256"
+                    ],
+                    "kb-jwt_alg_values": [
+                        "ES256"
+                    ]
+        }
+            },
+            "constraints": {
+                "limit_disclosure": "required",
+                "fields": [
+                    {
+                        "path": [
+                            "$.age_over_18"
+                        ]
+                    }
+                ]
+            }
+        }
+    ]
+}
+
 # Init Flask
 app = Flask(__name__)
-app.config.update(
-    OIDC_REDIRECT_URI = 'http://192.168.2.115:5000/callback', # your application redirect uri. Must not be used in your code
-    SECRET_KEY = "lkjhlkjh" # your application secret code for session, random
-)
+qrcode = QRcode(app)
 
-# Framework Flask and Session setup
-app.config['SESSION_PERMANENT'] = True
-app.config['SESSION_COOKIE_NAME'] = 'talao'
-app.config['SESSION_TYPE'] = 'redis' # Redis server side session
-app.config['SESSION_FILE_THRESHOLD'] = 100
-
-sess = Session()
-sess.init_app(app)
+client_id = "0000"
+X_API_Key = "0000"
 
 
-"""
-Init OpenID Connect client PYOIDC with the 3 bridge parameters :  client_id, client_secret and issuer URL
-"""
-
-client_metadata = ClientMetadata(
-     client_id='0001',
-    client_secret='0001',
-    #post_logout_redirect_uris=['http://127.0.0.1:4000/logout']) # your post logout uri (optional
-    )
-
-provider_config = ProviderConfiguration(issuer='http://192.168.2.115:3000/verifier/app',
-                                        client_metadata=client_metadata)
-
-auth = OIDCAuthentication({'default': provider_config}, app)
+# ce webhook permet de recuperer le credential envoyé par le wallet
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    data = request.json
+    red.setex(data['state'] + "_wallet", 1000, json.dumps(data))
+    red.publish('verifier', json.dumps({"stream_id": data['state']}))
+    return jsonify('ok')
 
 
+# ce endpoint permet d'afficher le QR code envoyé par le verifier
 @app.route('/', methods=['GET', 'POST'])
 def site():
-    if request.method == 'GET' :
-        html_string = """<html><head></head>
-                        <body><div>
-                        <form action="/" method="POST" >                    
-                            <button  type"submit" > Generate QR code for WCM </button>
-                        </form>
-                        
-                        </div>
-                        </body></html>"""
-        return render_template_string(html_string) 
-    else:
-        return redirect('/login')
+    # on appelle le verifier qui envoie le QR code a afficher sur le site local
+    user = str(uuid.uuid1()) # identifient de la session du user
+    payload = {
+        "presentation_definition": OVER18_PRESENTATION_DEFINITION,
+        "webhook": ngrok + '/webhook', # url du webhook du site
+        "state": user
+    }
+    url = verifier + client_id
+    headers = {
+        'X-API-Key': X_API_Key,
+        'Content-Type': 'application/json'
+    }
+    resp = requests.post(url, headers=headers, json=payload, timeout=10) 
+    api_response = resp.json()
+    qrcode = api_response['QRcode']
+    red.setex(user, 1000, qrcode)
+    return redirect('/qrcode/' + user)
 
 
-@app.route('/login')
-@auth.oidc_auth('default')
-def index():    
-    user_session = UserSession(flask.session)  
-    print("Id token = ", user_session.id_token)  
-    return jsonify('Congrats') 
+@app.route('/qrcode/<user>', methods=['GET', 'POST'])   
+def qrcode(user):
+    url = red.get(user).decode()
+    print('url =', url)
+    html_string = """<html>
+                        <body>
+                            <div>
+                                <h1>Verifier app for test</h1>
+                                <img  src="{{ qrcode(url) }}" width="400"><br>
+                            </div>
+                            <script>
+                                var source = new EventSource('/stream');
+                                source.onmessage = function (event) {
+                                    const result = JSON.parse(event.data)
+                                    if (result.stream_id == '{{user}}' ){
+                                        window.location.href='/followup/' + result.stream_id;
+                                    }
+                                };
+                            </script>
+                        </body>
+                    </html>"""
+    return render_template_string(html_string, user=user, url=url)
 
 
-@auth.error_view
-def error(error=None, error_description=None):
-    return jsonify('Sorry')
+
+@app.route('/followup/<user>', methods=['GET']) 
+def followup(user):
+    data = red.get(user + "_wallet").decode()
+    data = json.dumps(json.loads(data), indent=4)
+    html_string = """<html>
+                            <h1>Data sent by wallet</h1>
+                                <div>
+                                    <textarea rows="30" cols="150">{{data|safe}}</textarea>
+                                    <br><br>
+                                    <a href="/"><button>Reset</button></a>
+                                </div>
+                            </body>
+                        </html>"""
+    return render_template_string(html_string, data=data)
+
+    
+@app.route('/stream', methods=['GET', 'POST'])
+def stream():
+    def login_event_stream():
+        pubsub = red.pubsub()
+        pubsub.subscribe('verifier')
+        for message in pubsub.listen():
+            if message['type']=='message':
+                yield 'data: %s\n\n' % message['data'].decode()
+    headers = { "Content-Type": "text/event-stream",
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no"}
+    return Response(login_event_stream(), headers=headers)
+
+
 
 
 if __name__ == '__main__':
-    app.run( host = "192.168.2.115", port=5000, debug =True)
+    app.run(host=extract_ip(), port=5000, debug =True)

@@ -1,4 +1,4 @@
-from flask import Flask, request,  jsonify, Response
+from flask import Flask, request,  jsonify, Response, redirect
 import json
 import uuid
 from datetime import datetime
@@ -8,42 +8,48 @@ import base64
 from jwcrypto import jwk, jwt
 import helpers
 import x509_attestation
-import environment
 import redis
 import os
 import requests
 import contextlib
-
+import message
+import socket
+from hashlib import sha256
 
 logging.basicConfig(level=logging.INFO)
-
-VERSION = "2.1"
-
-
+VERSION = "2.2"
 myenv = os.getenv('MYENV')
-if not myenv:
-    myenv = 'local'
-mode = environment.currentMode(myenv)
-
-
-# Redis init red = redis.StrictRedis()
 red = redis.Redis(host='localhost', port=6379, db=0)
-app = Flask(__name__) 
+app = Flask(__name__)
 app.jinja_env.globals['Version'] = VERSION
+
+
+def extract_ip():
+    st = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        st.connect(('10.255.255.255', 1))
+        IP = st.getsockname()[0]
+    except Exception:
+        IP = '127.0.0.1'
+    finally:
+        st.close()
+    return IP
+
+
+def server():
+    if myenv == 'aws':
+        return 'https://verifier.wallet-provider.com/'
+    else:
+        return 'http://' + extract_ip() + ':3000/'
 
 
 def get_verifier_data(verifier_id: str) -> dict:
     try:
-        f = open('verifier-profile_2.0.json', 'r')
+        f = open('verifier-profile.json', 'r')
         return json.loads(f.read())[verifier_id]
     except Exception:
         logging.warning("verifier does not exist")
         return {}
-    
-
-@app.route('/', methods=['GET'])
-def hello():
-    return jsonify("hello Version = " + VERSION)
 
 
 def build_jwt_request(key, kid, authorization_request) -> str:
@@ -86,32 +92,49 @@ def build_jwt_request(key, kid, authorization_request) -> str:
         _token += base64.urlsafe_b64encode(json.dumps(payload).encode()).decode()
         return _token
 
+    
+@app.errorhandler(500)
+def error_500(e):
+    message.message("Error 500 on verifier = " + str(e), 'thierry.thevenet@talao.io', str(e))
+    return redirect(server() + '/')
 
-@app.route('/verifier/<client_id>', methods=['GET', 'POST'])
+
+@app.route('/', methods=['GET'])
+def hello():
+    return jsonify("hello Version = " + VERSION)
+
+
+@app.route('/verifier/<client_id>', methods=['POST'])
 def login_qrcode(client_id):
     logging.info(request.form)
     client_data = get_verifier_data(client_id)
     if request.headers["X-API-Key"] != client_data["X-API-Key"]:
         return jsonify("error api key"), 400
-    stream_id = str(uuid.uuid1())
+    try:
+        presentation_definition = request.json['presentation_definition']
+        state = request.json['state']
+        webhook = request.json['webhook']
+    except Exception:
+        return jsonify("invalid request"), 400
+        
+    stream_id = sha256(state.encode()).hexdigest()
     nonce = str(uuid.uuid1())
 
-    authorization_request = { 
+    authorization_request = {
         "response_type": "vp_token",
         "nonce": nonce,
-        "response_uri": mode.server + 'verifier/response_uri/' + stream_id,
+        "response_uri": server() + 'verifier/response_uri/' + stream_id,
         "client_id_scheme": "did",
         "client_id": client_data['did'],
         "aud": 'https://self-issued.me/v2',
         "client_metadata": json.load(open("verifier_metadata.json", 'r')),
         "response_mode": 'direct_post',
-        "presentation_definition": request.json['presentation_definition']
+        "presentation_definition": presentation_definition,
+        "state": state
     }
-    logging.info("authorization request = %s", json.dumps(authorization_request, indent=4) )
-    if request.json.get("state"):
-        authorization_request["steate"] = request.json.get("state")
+    logging.info("authorization request = %s", json.dumps(authorization_request, indent=4))
         
-    # manage request as jwt  
+    # manage request as jwt
     request_as_jwt = build_jwt_request(
         client_data['jwk'],
         client_data['verificationMethod'],
@@ -119,15 +142,16 @@ def login_qrcode(client_id):
     )
     payload = {
         "request_as_jwt": request_as_jwt,
-        "webhook": request.json['webhook'],
+        "webhook": webhook,
         "nonce": nonce,
-        "state": request.json['state'],
+        "aud": client_data['did'],
+        "state": state,
         "raw": client_data.get('raw')
     }
     red.setex(stream_id, 1000, json.dumps(payload))
     authorization_request_displayed = { 
             "client_id":  client_data['did'],
-            "request_uri": mode.server + "verifier/request_uri/" + stream_id 
+            "request_uri": server() + "verifier/request_uri/" + stream_id 
         }
     QRcode = "openid-vc://" + '?' + urlencode(authorization_request_displayed)
     print(QRcode)
@@ -152,63 +176,70 @@ def request_uri(stream_id):
 
 @app.route('/verifier/response_uri/<stream_id>',  methods=['POST'])
 def response_endpoint(stream_id):
+    """
+    response endpoint for OIDC4VP draft 13, direct_post, no encryption
+    """
     logging.info("Enter wallet response endpoint")
     try:
         data = json.loads(red.get(stream_id).decode())
     except Exception:
+        logging.error("request timeout, data not available in redis")
         return jsonify("Request timeout"), 408
-    
-    # get id_token, vp_token and presentation_submission
+
+    # get vp_token and presentation_submission
     vp_token = request.form.get('vp_token')
     presentation_submission = request.form.get('presentation_submission')
     logging.info('vp token received = %s', vp_token)
-    
-    if presentation_submission:
-        logging.info('presentation submission received = %s', presentation_submission)
-    else:
-        logging.info('No presentation submission received')
+
+    if not presentation_submission or not vp_token:
+        logging.info('No presentation submission or vp_token received')
+        response = {
+            "error": "invalid_wallet_request",
+            "error_description": "No presentation submission or vp_token received from wallet"
+        }
+        headers = {'Content-Type': 'application/json'}
+        requests.post(data['webhook'], headers=headers, json=response, timeout=10)
         return jsonify('Invalid response format'), 400
-        
-    # check vp_token
-    if vp_token[0] == "e":
-        vp_list = []
-        vp_list.append(vp_token)
-    else:
+
+    # prepare vp_token
+    try:
         vp_list = json.loads(vp_token)
+    except Exception:
+        vp_list = [vp_token]
+
     claims_list = []
-    n = 0
+    n = 1
+    signature = validity = True
+    error_description = ""
     for vp in vp_list:
-        vcsd_jwt = vp.split("~")
+        sd_jwt = vp.split("~")
+        sd_jwt_payload = helpers.get_payload_from_token(sd_jwt[0])
+        
         # check signature
-        logging.info("sd-jwt number %s", n)
+        logging.info("sd-jwt number %s/%s", n, len(vp_list))
         n += 1
         try:
-            helpers.verif_token(vcsd_jwt[0], False, aud=None)
-            signature = True
+            helpers.verif_token(sd_jwt[0], sd_jwt[-1], data['nonce'], data['aud'])
+            signature *= True
         except Exception as e:
             logging.warning("signature check failed = %s", str(e))
-            signature = False
+            error_description = sd_jwt_payload["vct"] + str(e)
+            signature *= False
         
         # Check expiration date
-        vcsd_jwt_payload = helpers.get_payload_from_token(vcsd_jwt[0])
-        if vcsd_jwt_payload.get('exp') and vcsd_jwt_payload.get('exp') < round(datetime.timestamp(datetime.now())):
-            validity = False
+        if sd_jwt_payload.get('exp') and sd_jwt_payload.get('exp') < round(datetime.timestamp(datetime.now())):
+            validity *= False
+            error_description += " " + sd_jwt_payload["vct"] + " Expired "
         else:
-            validity = True
-        nb_disclosure = len(vcsd_jwt)
-        logging.info("nb of disclosure = %s", nb_disclosure - 2 )
+            validity *= True
+        
+        # extract disclosure
+        nb_disclosure = len(sd_jwt)
+        logging.info("nb of disclosure = %s", nb_disclosure - 2)
         claims = {}
-        claims.update(vcsd_jwt_payload)
-        # clean response to application
-        with contextlib.suppress(Exception):
-            del claims['_sd']
-            del claims['cnf']
-            del claims['status']
-            del claims['iat']
-            del claims['exp']
-            del claims['_sd_alg']
+        claims.update(sd_jwt_payload)
         for i in range(1, nb_disclosure-1):
-            _disclosure = vcsd_jwt[i]
+            _disclosure = sd_jwt[i]
             _disclosure += "=" * ((4 - len(_disclosure) % 4) % 4)
             try:
                 logging.info("disclosure #%s = %s", i, base64.urlsafe_b64decode(_disclosure.encode()).decode())
@@ -217,27 +248,42 @@ def response_endpoint(stream_id):
             except Exception:
                 logging.error("i = %s", i)
                 logging.error("_disclosure excluded = %s", _disclosure)
+        
+        # clean claims for response to application
+        with contextlib.suppress(Exception):
+            del claims['_sd']
+            del claims['cnf']
+            del claims['status']
+            del claims['iat']
+            del claims['exp']
+            del claims['_sd_alg']
         claims_list.append(claims)
+
+    # prepare response to application    
     response = {
         "created": datetime.timestamp(datetime.now()),
-        "signature": signature, # bool
-        "validity": validity, # bool
+        "signature": bool(signature),  # bool
+        "validity": bool(validity),  # bool
         "claims": claims_list,
         "state": data['state']
     }
     if data['raw']:
         response['raw'] = request.form
+    if error_description:
+        response['error_description'] = error_description
+
+    # send response to application webhook
     headers = {'Content-Type': 'application/json'}
-    requests.post(data['webhook'], headers=headers, json=response) 
+    requests.post(data['webhook'], headers=headers, json=response, timeout=10)
     logging.info("data sent to application = %s", json.dumps(response, indent=4))
-    
-    # desactivate QR code
+
+    # delete request
     red.delete(stream_id)
     return jsonify('ok')
 
 
 if __name__ == '__main__':
-    app.run(host=mode.flaskserver,
-            port=mode.port,
+    app.run(host=extract_ip(),
+            port=3000,
             debug=True,
             threaded=True)
