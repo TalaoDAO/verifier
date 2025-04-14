@@ -23,7 +23,7 @@ This server is designed to support **secure, QR-based wallet interactions** and 
 
 Start an OIDC4VP presentation flow. Returns a QR code and session ID.
 
-**POST** `/tools/initiate_pid_request`
+**POST** `https://verifier.wallet-provider.com/tools/initiate_pid_request`
 
 #### Response
 
@@ -43,7 +43,7 @@ Start an OIDC4VP presentation flow. Returns a QR code and session ID.
 
 Poll the status of the credential presentation.
 
-**POST** `/tools/check_pid_result`
+**POST** `https://verifier.wallet-provider.com/tools/check_pid_result`
 
 #### Request
 
