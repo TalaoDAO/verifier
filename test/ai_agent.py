@@ -10,6 +10,7 @@ qrcode = QRcode(app)
 
 # Adresse de ton serveur MCP REST (à adapter)
 BASE_URL = "http://192.168.0.20:3000"
+BASE_URL = "https://verifier.wallet-provider.com"
 
 def extract_ip():
     st = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -39,7 +40,7 @@ def discover_mcp_tools():
 def test():
     session_id = request.form["session_id"]
     data = {"session_id": session_id}
-    r = requests.post("http://192.168.0.20:3000/tools/check_pid_result", json=data,  timeout=10)
+    r = requests.post(BASE_URL + "/tools/check_pid_result", json=data,  timeout=10)
     print("session_id = ", session_id)
     print("Tool MCP 2 = ", r.json())
     return jsonify(r.json())
@@ -47,7 +48,7 @@ def test():
 
 @app.route('/', methods=['GET', 'POST'])   
 def qrcode():
-    r = requests.post("http://192.168.0.20:3000/tools/initiate_pid_request", timeout=10)
+    r = requests.post( BASE_URL + "/tools/initiate_pid_request", timeout=10)
     result = r.json()
     session_id = result["session_id"]
     url = result['presentation_url']

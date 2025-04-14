@@ -2,6 +2,7 @@
 MCP server to allow an AI agent to acces a wallet PID
 
 """
+# --- Import required libraries ---
 from flask import Flask, request,  jsonify, Response, redirect
 import json
 import uuid
@@ -19,14 +20,19 @@ import message
 import socket
 import qrcode
 
+
+# --- Configuration and Initialization ---
 logging.basicConfig(level=logging.INFO)
 VERSION = "3.9"
 myenv = os.getenv('MYENV')
 red = redis.Redis(host='localhost', port=6379, db=0)
+# Initialize Flask app and inject version into templates
 app = Flask(__name__)
 app.jinja_env.globals['Version'] = VERSION
 
 
+
+# --- Basic Routes ---
 @app.route('/', methods=['GET'])
 def hello():
     return jsonify("hello Version = " + VERSION)
@@ -38,6 +44,8 @@ def error_500(e):
     return redirect(get_server_url())
 
 
+
+# --- Utility to get local IP address ---
 def extract_ip():
     st = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
@@ -50,6 +58,8 @@ def extract_ip():
     return ip
 
 
+
+# --- Determine callback server URL based on environment ---
 def get_server_url():
     if myenv == 'aws':
         return 'https://verifier.wallet-provider.com/'
@@ -57,6 +67,8 @@ def get_server_url():
         return 'http://' + extract_ip() + ':3000/'
 
 
+
+# --- Generate a base64 QR code image from a URL ---
 def generate_qr_base64(url: str) -> str:
     img = qrcode.make(url)
     buffer = io.BytesIO()
@@ -65,6 +77,8 @@ def generate_qr_base64(url: str) -> str:
     return f"data:image/png;base64,{base64_img}"
 
 
+
+# --- Load verifier-specific data from profile ---
 def get_verifier_data(verifier_id: str) -> dict:
     try:
         f = open('verifier-profile.json', 'r')
@@ -74,6 +88,8 @@ def get_verifier_data(verifier_id: str) -> dict:
         return
 
 
+
+# --- Build JWT authorization request ---
 def build_jwt_request(key, kid, authorization_request) -> str:
     if key:
         key = json.loads(key) if isinstance(key, str) else key
@@ -112,6 +128,8 @@ def build_jwt_request(key, kid, authorization_request) -> str:
 
 
 # provide qrcode for pid
+
+# --- Generate QR code URL and session data for PID verification ---
 def get_qrcode(client_id, session_id):
     verifier_data = get_verifier_data(client_id)
     presentation_definition = verifier_data['presentation_definition']
@@ -155,10 +173,11 @@ def get_qrcode(client_id, session_id):
 
 
 # Tool MCP 1 : démarrer une demande OIDC4VP
+
+# --- Tool MCP 1: Start OIDC4VP PID Request ---
 @app.route("/tools/initiate_pid_request", methods=["POST"])
 def initiate_oidc4vp_request():
     session_id = str(uuid.uuid4())
-    print("create session_id = ", session_id)
     presentation_url = get_qrcode("pid", session_id)
     red.setex(session_id + "_MCP", 10000, json.dumps({"status": "pending"}))
     data = {
@@ -168,17 +187,17 @@ def initiate_oidc4vp_request():
         "presentation_url": presentation_url,
         "qr_code_base64": generate_qr_base64(presentation_url)
     }
-    print("data sent = ", data)
+    logging.info("Response MCP 1 = %s", json.dumps(data, indent=4))
     return jsonify(data)
     
 
 # request uri endpoint for wallet
+
+# --- Wallet fetches request JWT here ---
 @app.route('/verifier/request_uri/<stream_id>', methods=['GET', 'POST'])
 def request_uri(stream_id):
-    print("session_id = ", stream_id)
     try:
         data = json.loads(red.get(stream_id).decode())
-        print("data = ", data)
     except Exception:
         logging.info("request expired or already used")
         return jsonify("Request timeout"), 400
@@ -191,9 +210,10 @@ def request_uri(stream_id):
 
 
 # response uri endpoint for wallet
+
+# --- Wallet POSTs VP token response here ---
 @app.route('/verifier/response_uri/<stream_id>',  methods=['POST'])
 def response_endpoint(stream_id):
-    print("session_id = ", stream_id)
     """
     response endpoint for OIDC4VP draft 13, direct_post, no encryption
     """
@@ -271,7 +291,6 @@ def response_endpoint(stream_id):
                 "birth_date": claims["birth_date"]
             }
         }
-    print("session_id, session_data = ",session_id, session_data)
     red.setex(session_id + "_MCP", 1000, json.dumps(session_data))
 
     # delete request and return to wallet
@@ -279,12 +298,13 @@ def response_endpoint(stream_id):
     return jsonify('ok')
 
 
-# Tool MCP 2 : vérifier si la présentation a été reçue
+# Tool MCP 2 
+
+# --- Tool MCP 2: Check result of verification ---
 @app.route("/tools/check_pid_result", methods=["POST"])
 def check_oidc4vp_result():
     data = request.json
     session_id = data.get("session_id")
-    print("call MCP 2 session_id", session_id)
 
     if not red.get(session_id + "_MCP"):
         return jsonify({"error": "Invalid session_id"}), 404
@@ -298,11 +318,13 @@ def check_oidc4vp_result():
             "status": "verified",
             "verified_credential": json.loads(red.get(session_id + "_MCP").decode())['credential']
         }
-    print("data = ", data)
+    logging.info("Response MCP 2 = %s", json.dumps(data, indent=4))
     return jsonify(data)
 
 
 # Endpoint MCP : déclaration des tools disponibles
+
+# --- MCP Tools Description Endpoint ---
 @app.route("/.well-known/mcp/tools", methods=["GET"])
 def tools():
     return jsonify({
@@ -330,6 +352,8 @@ def tools():
     })
 
 
+
+# --- Run the Flask server ---
 if __name__ == '__main__':
     app.run(host=extract_ip(),
             port=3000,
