@@ -77,7 +77,10 @@ Poll the status of the credential presentation.
 - Error:
 
 ```json
-{ "status": "error" }
+{ 
+  "status": "error",
+  "error_description": "signature failed"
+}
 ```
 
 ---
@@ -151,4 +154,4 @@ Or use a Custom GPT / Claude with support for MCP tools.
 
 Created by [Talao](https://talao.io)  
 Maintainer: thierry.thevenet@talao.io  
-License: MIT
+License: Apache V2.0

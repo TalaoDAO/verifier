@@ -15,7 +15,6 @@ import x509_attestation
 import redis
 import os
 import io
-import requests
 import message
 import socket
 import qrcode
@@ -149,10 +148,10 @@ def get_qrcode(client_id, session_id):
             "client_id":  verifier_data['did'],
             "request_uri": get_server_url() + "verifier/request_uri/" + session_id 
         }
-    qrcode = "openid-vc://" + '?' + urlencode(authorization_request_displayed)
-    logging.info("QRcode = %s", qrcode)
+    qrcode_content = "openid-vc://" + '?' + urlencode(authorization_request_displayed)
+    logging.info("QRcode = %s", qrcode_content)
     logging.info("authorization request = %s", authorization_request_displayed)
-    return qrcode
+    return qrcode_content
 
 
 # Tool MCP 1 : démarrer une demande OIDC4VP
