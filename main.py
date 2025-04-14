@@ -175,7 +175,7 @@ def get_qrcode(client_id, session_id):
 # Tool MCP 1 : démarrer une demande OIDC4VP
 
 # --- Tool MCP 1: Start OIDC4VP PID Request ---
-@app.route("/tools/initiate_pid_request", methods=["POST"])
+@app.route("/mcp/initiate_pid_request", methods=["POST"])
 def initiate_oidc4vp_request():
     session_id = str(uuid.uuid4())
     presentation_url = get_qrcode("pid", session_id)
@@ -301,7 +301,7 @@ def response_endpoint(stream_id):
 # Tool MCP 2 
 
 # --- Tool MCP 2: Check result of verification ---
-@app.route("/tools/check_pid_result", methods=["POST"])
+@app.route("/mcp/check_pid_result", methods=["POST"])
 def check_oidc4vp_result():
     data = request.json
     session_id = data.get("session_id")
@@ -332,7 +332,7 @@ def tools():
             {
                 "name": "initiate_pid_request",
                 "description": "Initiates an OIDC4VP credential presentation request",
-                "input_schema": {
+                "inputSchema": {
                     "type": "object",
                     "properties": {}
                 }
@@ -340,7 +340,7 @@ def tools():
             {
                 "name": "check_pid_result",
                 "description": "Checks the result of a credential presentation via OIDC4VP",
-                "input_schema": {
+                "inputSchema": {
                     "type": "object",
                     "properties": {
                         "session_id": {"type": "string"}
