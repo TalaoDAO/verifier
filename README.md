@@ -111,21 +111,10 @@ Perfect for use in:
 
 ---
 
-## 🌍 Deployment
-
-Can be hosted easily via:
-- [Render](https://render.com)
-- [Fly.io](https://fly.io)
-- [Railway](https://railway.app)
-- Docker / VPS
-
-> Be sure to expose `/.well-known/mcp/tools` to ensure discoverability by clients.
-
----
 
 ## 📄 MCP Tool Discovery
 
-**GET** `/.well-known/mcp/tools`
+**GET** `https://verifier.wallet-provider.com/.well-known/mcp/tools`
 
 Returns a JSON manifest describing available tools, input schema, and descriptions.
 
@@ -134,8 +123,8 @@ Returns a JSON manifest describing available tools, input schema, and descriptio
 ## 🧪 Demo Agent Available
 
 You can test this server using a local or scripted agent that calls:
-- `/tools/initiate_pid_request`
-- `/tools/check_pid_result`
+- `https://verifier.wallet-provider/tools/initiate_pid_request`
+- `https://verifier.wallet-provider.com/tools/check_pid_result`
 
 Or use a Custom GPT / Claude with support for MCP tools.
 
