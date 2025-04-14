@@ -332,17 +332,17 @@ def tools():
             {
                 "name": "initiate_pid_request",
                 "description": "Initiates an OIDC4VP credential presentation request",
-                "inputSchema": {
+                "input_schema": {
                     "type": "object",
-                    "properties": {}
+                    "properties": None
                 },
                 "method": "POST",
-                "endpoint":  get_server_url() + ".well-known/initiate_pid_request"
+                "endpoint":  get_server_url() + ".well-known/mcp/initiate_pid_request"
             },
             {
                 "name": "check_pid_result",
                 "description": "Checks the result of a credential presentation via OIDC4VP",
-                "inputSchema": {
+                "input_schema": {
                     "type": "object",
                     "properties": {
                         "session_id": {"type": "string"}
@@ -350,7 +350,7 @@ def tools():
                     "required": ["session_id"]
                 },
                 "method": "POST",
-                "endpoint": get_server_url() + ".well-known/check_pid_result"
+                "endpoint": get_server_url() + ".well-known/mcp/check_pid_result"
             }
         ]
     })
