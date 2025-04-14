@@ -335,7 +335,9 @@ def tools():
                 "inputSchema": {
                     "type": "object",
                     "properties": {}
-                }
+                },
+                "method": "POST",
+                "endpoint":  get_server_url() + ".well-known/initiate_pid_request"
             },
             {
                 "name": "check_pid_result",
@@ -346,7 +348,9 @@ def tools():
                         "session_id": {"type": "string"}
                     },
                     "required": ["session_id"]
-                }
+                },
+                "method": "POST",
+                "endpoint": get_server_url() + ".well-known/check_pid_result"
             }
         ]
     })
