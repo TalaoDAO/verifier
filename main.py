@@ -327,7 +327,7 @@ def check_oidc4vp_result():
 # --- MCP Tools Description Endpoint ---
 @app.route("/.well-known/mcp/tools", methods=["GET"])
 def tools():
-    return jsonify({
+    data = {
         "tools": [
             {
                 "name": "initiate_pid_request",
@@ -353,7 +353,8 @@ def tools():
                 "endpoint": get_server_url() + "mcp/check_pid_result"
             }
         ]
-    })
+    }
+    return jsonify(data)
 
 
 
