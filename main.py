@@ -337,7 +337,7 @@ def tools():
                     "properties": None
                 },
                 "method": "POST",
-                "endpoint":  get_server_url() + ".well-known/mcp/initiate_pid_request"
+                "endpoint":  get_server_url() + "mcp/initiate_pid_request"
             },
             {
                 "name": "check_pid_result",
@@ -350,7 +350,7 @@ def tools():
                     "required": ["session_id"]
                 },
                 "method": "POST",
-                "endpoint": get_server_url() + ".well-known/mcp/check_pid_result"
+                "endpoint": get_server_url() + "mcp/check_pid_result"
             }
         ]
     })
