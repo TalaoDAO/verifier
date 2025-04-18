@@ -19,7 +19,7 @@ import io
 import message
 import socket
 import qrcode
-
+import requests
 
 # --- Configuration and Initialization ---
 logging.basicConfig(level=logging.INFO)
@@ -29,7 +29,6 @@ red = redis.Redis(host='localhost', port=6379, db=0)
 # Initialize Flask app and inject version into templates
 app = Flask(__name__)
 app.jinja_env.globals['Version'] = VERSION
-
 
 
 # --- Basic Routes ---
@@ -42,21 +41,6 @@ def hello():
 def error_500(e):
     message.message("Error 500 on verifier = " + str(e), 'thierry.thevenet@talao.io', str(e))
     return redirect(get_server_url())
-
-
-
-# --- Utility to get local IP address ---
-def extract_ip():
-    st = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        st.connect(('10.255.255.255', 1))
-        ip = st.getsockname()[0]
-    except Exception:
-        ip = '127.0.0.1'
-    finally:
-        st.close()
-    return ip
-
 
 
 # --- Determine callback server URL based on environment ---
@@ -77,7 +61,6 @@ def generate_qr_base64(url: str) -> str:
     return f"data:image/png;base64,{base64_img}"
 
 
-
 # --- Load verifier-specific data from profile ---
 def get_verifier_data(verifier_id: str) -> dict:
     try:
@@ -86,7 +69,6 @@ def get_verifier_data(verifier_id: str) -> dict:
     except Exception:
         logging.warning("verifier does not exist")
         return
-
 
 
 # --- Build JWT authorization request ---
@@ -130,7 +112,7 @@ def build_jwt_request(key, kid, authorization_request) -> str:
 # provide qrcode for pid
 
 # --- Generate QR code URL and session data for PID verification ---
-def get_qrcode(client_id, session_id):
+def get_qrcode(client_id, request_id):
     verifier_data = get_verifier_data(client_id)
     presentation_definition = verifier_data['presentation_definition']
     nonce = str(uuid.uuid1())
@@ -138,7 +120,7 @@ def get_qrcode(client_id, session_id):
     authorization_request = {
         "response_type": "vp_token",
         "nonce": nonce,
-        "response_uri": get_server_url() + 'verifier/response_uri/' + session_id,
+        "response_uri": get_server_url() + 'verifier/response_uri/' + request_id,
         "client_id_scheme": "did",
         "client_id": verifier_data['did'],
         "aud": 'https://self-issued.me/v2',
@@ -158,13 +140,13 @@ def get_qrcode(client_id, session_id):
         "request_as_jwt": request_as_jwt,
         "nonce": nonce,
         "aud": verifier_data['did'],
-        "state": session_id,
+        "state": request_id,
         "raw": verifier_data.get('raw')
     }
-    red.setex(session_id, 1000, json.dumps(payload))
+    red.setex(request_id, 1000, json.dumps(payload))
     authorization_request_displayed = { 
             "client_id":  verifier_data['did'],
-            "request_uri": get_server_url() + "verifier/request_uri/" + session_id 
+            "request_uri": get_server_url() + "verifier/request_uri/" + request_id 
         }
     qrcode_content = "openid-vc://" + '?' + urlencode(authorization_request_displayed)
     logging.info("QRcode = %s", qrcode_content)
@@ -172,19 +154,25 @@ def get_qrcode(client_id, session_id):
     return qrcode_content
 
 
-# Tool MCP 1 : démarrer une demande OIDC4VP
 
 # --- Tool MCP 1: Start OIDC4VP PID Request ---
 @app.route("/mcp/initiate_pid_request", methods=["POST", "GET"])
 def initiate_oidc4vp_request():
-    session_id = str(uuid.uuid4())
-    presentation_url = get_qrcode("pid", session_id)
-    red.setex(session_id + "_MCP", 10000, json.dumps({"status": "pending"}))
+    webhook = request.get_json()['webhook']
+    session_id = request.get_json()['session_id']
+    print("webhook =", webhook)
+    request_id = str(uuid.uuid4())
+    presentation_url = get_qrcode("any", request_id)
+    red.setex(request_id + "_MCP", 10000, json.dumps({
+        "status": "pending",
+        "webhook": webhook,
+        "session_id": session_id
+        }))
     data = {
         "status": "pending",
         "instructions": "Scan this QR code with your wallet to present a credential.",
+        "request_id": request_id,
         "session_id": session_id,
-        "presentation_url": presentation_url,
         "qr_code_base64": generate_qr_base64(presentation_url)
     }
     logging.info("Response MCP 1 = %s", json.dumps(data, indent=4))
@@ -209,24 +197,23 @@ def request_uri(stream_id):
     return Response(request_as_jwt, headers=headers)
 
 
-# response uri endpoint for wallet
 
 # --- Wallet POSTs VP token response here ---
-@app.route('/verifier/response_uri/<stream_id>',  methods=['POST'])
-def response_endpoint(stream_id):
+@app.route('/verifier/response_uri/<request_id>',  methods=['POST'])
+def response_endpoint(request_id):
     """
     response endpoint for OIDC4VP draft 13, direct_post, no encryption
     """
     logging.info("Enter wallet response endpoint")
     try:
-        data = json.loads(red.get(stream_id).decode())
+        data = json.loads(red.get(request_id).decode())
     except Exception:
         logging.error("request timeout, data not available in redis")
         return jsonify("Request timeout"), 408
 
     # get vp_token and presentation_submission
     vp_token = request.form.get('vp_token')
-    presentation_submission = request.form.get('presentation_submission')
+    #presentation_submission = request.form.get('presentation_submission')
     logging.info('vp token received = %s', vp_token)
 
     # prepare vp_token
@@ -276,7 +263,18 @@ def response_endpoint(stream_id):
                 logging.error("i = %s", i)
                 logging.error("_disclosure excluded = %s", _disclosure)
     
-    session_id = stream_id
+    webhook = json.loads(red.get(request_id + "_MCP").decode())["webhook"]
+    session_id = json.loads(red.get(request_id + "_MCP").decode())["session_id"]
+
+    claims.pop("status", None)
+    claims.pop("_sd", None)
+    claims.pop("iss", None)
+    claims.pop("cnf", None)
+    claims.pop("vct", None)
+    claims.pop("_sd_alg", None)
+    claims.pop("exp", None)
+    claims.pop("iat", None)
+    
     if error_description:
         session_data = {
             'status': 'error',
@@ -284,78 +282,77 @@ def response_endpoint(stream_id):
         }
     else:
         session_data = {
-            'status': "verified",
-            'credential': {
-                "given_name": claims['given_name'],
-                "family_name": claims["family_name"],
-                "birth_date": claims["birth_date"]
-            }
+            "verified": True,
+            'request_id': request_id,
+            'session_id': session_id,
+            'message': wrap_with_verification(claims)
         }
-    red.setex(session_id + "_MCP", 1000, json.dumps(session_data))
+    #red.setex(request_id + "_MCP", 1000, json.dumps(session_data))
+    requests.post(webhook, json=session_data, timeout=10)
 
     # delete request and return to wallet
-    red.delete(session_id)
+    red.delete(request_id)
     return jsonify('ok')
 
 
-# Tool MCP 2 
-
-# --- Tool MCP 2: Check result of verification ---
-@app.route("/mcp/check_pid_result", methods=["POST", "GET"])
-def check_oidc4vp_result():
-    data = request.json
-    session_id = data.get("session_id")
-
-    if not red.get(session_id + "_MCP"):
-        return jsonify({"error": "Invalid session_id"}), 404
-    status = json.loads(red.get(session_id + "_MCP").decode())["status"]
-    if status == "pending":
-        data = {"status": "pending"}
-    elif status == "error":
-        data = json.loads(red.get(session_id + "_MCP").decode())
-    else:
-        data = {
-            "status": "verified",
-            "verified_credential": json.loads(red.get(session_id + "_MCP").decode())['credential']
+def wrap_with_verification(data_dict):
+    return {
+        key: {
+            "value": value,
+            "verified": True
         }
-    logging.info("Response MCP 2 = %s", json.dumps(data, indent=4))
-    return jsonify(data)
+        for key, value in data_dict.items()
+    }
 
-
-# Endpoint MCP : déclaration des tools disponibles
-
-# --- MCP Tools Description Endpoint ---
+# --- MCP Tools GPT Function calling
 @app.route("/.well-known/mcp/tools", methods=["GET"])
 def tools():
     data = {
         "tools": [
             {
-                "name": "initiate_pid_request",
-                "description": "Initiates an OIDC4VP credential presentation request",
-                "input_schema": {
-                    "type": "object",
-                    "properties": None
-                },
-                "method": "POST",
-                "endpoint":  get_server_url() + "mcp/initiate_pid_request"
+                "type": "function",
+                "function": {
+                    "name": "initiate_pid_request",
+                    "description": "Displays a QR code that allows the user to share verified identity data from their digital wallet (such as first name, last name, or other credentials). Only use this tool if the user confirms they have a wallet and explicitly agrees to use it. Do not call this tool if the user refuses or if the data has already been verified.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {},
+                        "required": []
+                    }
+                }
             },
             {
-                "name": "check_pid_result",
-                "description": "Checks the result of a credential presentation via OIDC4VP",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "session_id": {"type": "string"}
-                    },
-                    "required": ["session_id"]
-                },
-                "method": "POST",
-                "endpoint": get_server_url() + "mcp/check_pid_result"
+                "type": "function",
+                "function": {
+                    "name": "create_customer_account",
+                    "description": "Creates a customer account using the user's provided personal information.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "given_name": { "type": "string", "description": "User's first name" },
+                            "family_name": { "type": "string", "description": "User's last name" },
+                            "email": { "type": "string", "description": "User's email address" }
+                        },
+                        "required": ["given_name", "family_name", "email"]
+                    }
+                }
             }
         ]
     }
     return jsonify(data)
 
+
+# --- Utility to get local IP address ---
+def extract_ip():
+    st = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        st.connect(('10.255.255.255', 1))
+        ip = st.getsockname()[0]
+    except Exception:
+        ip = '127.0.0.1'
+    finally:
+        st.close()
+    return ip
 
 
 # --- Run the Flask server ---
