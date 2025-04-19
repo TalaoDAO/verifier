@@ -188,8 +188,11 @@ def send():
         })
 
     # Call GPT with current conversation
-    reply, session_id, request_id, current_chat, account = call_gpt(session['chat'], session_id)
-    print("GPT reply = ", reply)
+    try:
+        reply, session_id, request_id, current_chat, account = call_gpt(session['chat'], session_id)
+        print("GPT reply = ", reply)
+    except:
+        return jsonify("server error")
 
     # Append GPT's reply to session if it's not a base64 image
     if reply:
