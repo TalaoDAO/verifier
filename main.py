@@ -1,348 +1,27 @@
-"""
-MCP server to allow an AI agent to acces a wallet PID
-
-"""
-# --- Import required libraries ---
-from flask import Flask, request,  jsonify, Response, redirect
+from openai import OpenAI
 import json
-import uuid
-from datetime import datetime
-from urllib.parse import urlencode
-import logging
-import base64
-from jwcrypto import jwk, jwt
-import helpers
-import x509_attestation
-import redis
-import os
-import io
-import message
+from flask import Flask, request, jsonify, render_template, session, Response
+from flask_session import Session
 import socket
-import qrcode
-import requests
-
-# --- Configuration and Initialization ---
-logging.basicConfig(level=logging.INFO)
-VERSION = "3.9"
-myenv = os.getenv('MYENV')
-red = redis.Redis(host='localhost', port=6379, db=0)
-# Initialize Flask app and inject version into templates
-app = Flask(__name__)
-app.jinja_env.globals['Version'] = VERSION
+from flask_qrcode import QRcode
+import redis
+import uuid
+from server import tools, initiate_oidc4vp_request, init_app
+import os
+import message
 
 
-# --- Basic Routes ---
-@app.route('/', methods=['GET'])
-def hello():
-    return jsonify("hello Version = " + VERSION)
+# Load OpenAI API key
+openapi_key = json.load(open("keys.json", "r"))['openai']
+  # Load OpenAI API key from a local JSON file
+client = OpenAI(
+  # Initialize OpenAI client with GPT-4 Turbo model
+    api_key=openapi_key,
+    timeout=25.0
+)
 
-
-@app.errorhandler(500)
-def error_500(e):
-    message.message("Error 500 on verifier = " + str(e), 'thierry.thevenet@talao.io', str(e))
-    return redirect(get_server_url())
-
-
-# --- Determine callback server URL based on environment ---
-def get_server_url():
-    if myenv == 'aws':
-        return 'https://verifier.wallet-provider.com/'
-    else:
-        return 'http://' + extract_ip() + ':3000/'
-
-
-
-# --- Generate a base64 QR code image from a URL ---
-def generate_qr_base64(url: str) -> str:
-    img = qrcode.make(url)
-    buffer = io.BytesIO()
-    img.save(buffer, format="PNG")
-    base64_img = base64.b64encode(buffer.getvalue()).decode("utf-8")
-    return f"data:image/png;base64,{base64_img}"
-
-
-# --- Load verifier-specific data from profile ---
-def get_verifier_data(verifier_id: str) -> dict:
-    try:
-        f = open('verifier-profile.json', 'r')
-        return json.loads(f.read())[verifier_id]
-    except Exception:
-        logging.warning("verifier does not exist")
-        return
-
-
-# --- Build JWT authorization request ---
-def build_jwt_request(key, kid, authorization_request) -> str:
-    if key:
-        key = json.loads(key) if isinstance(key, str) else key
-        signer_key = jwk.JWK(**key) 
-        alg = helpers.alg(key)
-    else:
-        alg = "none"
-    header = {
-        'typ': "oauth-authz-req+jwt",
-        'alg': alg,
-    }
-    client_id = authorization_request["client_id"]
-    if authorization_request["client_id_scheme"] == "x509_san_dns":
-        header['x5c'] = x509_attestation.build_x509_san_dns()
-    elif authorization_request["client_id_scheme"] == "verifier_attestation":
-        header['jwt'] = x509_attestation.build_verifier_attestation(client_id)
-    elif authorization_request["client_id_scheme"] == "redirect_uri":
-        pass
-    else:  # DID by default
-        header['kid'] = kid
-    
-    payload = {
-        'iss': client_id,
-        'exp': round(datetime.timestamp(datetime.now())) + 1000
-    }
-    payload |= authorization_request
-    if key:
-        _token = jwt.JWT(header=header, claims=payload, algs=[alg])
-        _token.make_signed_token(signer_key)
-        return _token.serialize()
-    else:
-        _token = base64.urlsafe_b64encode(json.dumps(header).encode()).decode()
-        _token += '.'
-        _token += base64.urlsafe_b64encode(json.dumps(payload).encode()).decode()
-        return _token
-
-
-# provide qrcode for pid
-
-# --- Generate QR code URL and session data for PID verification ---
-def get_qrcode(client_id, request_id):
-    verifier_data = get_verifier_data(client_id)
-    presentation_definition = verifier_data['presentation_definition']
-    nonce = str(uuid.uuid1())
-
-    authorization_request = {
-        "response_type": "vp_token",
-        "nonce": nonce,
-        "response_uri": get_server_url() + 'verifier/response_uri/' + request_id,
-        "client_id_scheme": "did",
-        "client_id": verifier_data['did'],
-        "aud": 'https://self-issued.me/v2',
-        "client_metadata": json.load(open("verifier_metadata.json", 'r')),
-        "response_mode": 'direct_post',
-        "presentation_definition": presentation_definition,
-    }
-    logging.info("authorization request = %s", json.dumps(authorization_request, indent=4))
-        
-    # manage request as jwt
-    request_as_jwt = build_jwt_request(
-        verifier_data['jwk'],
-        verifier_data['verificationMethod'],
-        authorization_request
-    )
-    payload = {
-        "request_as_jwt": request_as_jwt,
-        "nonce": nonce,
-        "aud": verifier_data['did'],
-        "state": request_id,
-        "raw": verifier_data.get('raw')
-    }
-    red.setex(request_id, 1000, json.dumps(payload))
-    authorization_request_displayed = { 
-            "client_id":  verifier_data['did'],
-            "request_uri": get_server_url() + "verifier/request_uri/" + request_id 
-        }
-    qrcode_content = "openid-vc://" + '?' + urlencode(authorization_request_displayed)
-    logging.info("QRcode = %s", qrcode_content)
-    logging.info("authorization request = %s", authorization_request_displayed)
-    return qrcode_content
-
-
-
-# --- Tool MCP 1: Start OIDC4VP PID Request ---
-@app.route("/mcp/initiate_pid_request", methods=["POST", "GET"])
-def initiate_oidc4vp_request():
-    webhook = request.get_json()['webhook']
-    session_id = request.get_json()['session_id']
-    print("webhook =", webhook)
-    request_id = str(uuid.uuid4())
-    presentation_url = get_qrcode("any", request_id)
-    red.setex(request_id + "_MCP", 10000, json.dumps({
-        "status": "pending",
-        "webhook": webhook,
-        "session_id": session_id
-        }))
-    data = {
-        "status": "pending",
-        "instructions": "Scan this QR code with your wallet to present a credential.",
-        "request_id": request_id,
-        "session_id": session_id,
-        "qr_code_base64": generate_qr_base64(presentation_url)
-    }
-    logging.info("Response MCP 1 = %s", json.dumps(data, indent=4))
-    return jsonify(data)
-    
-
-# request uri endpoint for wallet
-
-# --- Wallet fetches request JWT here ---
-@app.route('/verifier/request_uri/<stream_id>', methods=['GET', 'POST'])
-def request_uri(stream_id):
-    try:
-        data = json.loads(red.get(stream_id).decode())
-    except Exception:
-        logging.info("request expired or already used")
-        return jsonify("Request timeout"), 400
-    request_as_jwt = data["request_as_jwt"]
-    headers = {
-        "Content-Type": "application/oauth-authz-req+jwt",
-        "Cache-Control": "no-cache"
-    }
-    return Response(request_as_jwt, headers=headers)
-
-
-
-# --- Wallet POSTs VP token response here ---
-@app.route('/verifier/response_uri/<request_id>',  methods=['POST'])
-def response_endpoint(request_id):
-    """
-    response endpoint for OIDC4VP draft 13, direct_post, no encryption
-    """
-    logging.info("Enter wallet response endpoint")
-    try:
-        data = json.loads(red.get(request_id).decode())
-    except Exception:
-        logging.error("request timeout, data not available in redis")
-        return jsonify("Request timeout"), 408
-
-    # get vp_token and presentation_submission
-    vp_token = request.form.get('vp_token')
-    #presentation_submission = request.form.get('presentation_submission')
-    logging.info('vp token received = %s', vp_token)
-
-    # prepare vp_token
-    try:
-        vp_list = json.loads(vp_token)
-    except Exception:
-        vp_list = [vp_token]
-
-    n = 1
-    signature = validity = True
-    error_description = ""
-    for vp in vp_list:
-        sd_jwt = vp.split("~")
-        sd_jwt_payload = helpers.get_payload_from_token(sd_jwt[0])
-        
-        # check signature
-        logging.info("sd-jwt number %s/%s", n, len(vp_list))
-        n += 1
-        try:
-            helpers.verif_token(sd_jwt[0], sd_jwt[-1], data['nonce'], data['aud'])
-            signature *= True
-        except Exception as e:
-            logging.warning("signature check failed = %s", str(e))
-            error_description = sd_jwt_payload["vct"] + " signature check failed"
-            signature *= False
-        
-        # Check expiration date
-        if sd_jwt_payload.get('exp') and sd_jwt_payload.get('exp') < round(datetime.timestamp(datetime.now())):
-            validity *= False
-            error_description += " " + sd_jwt_payload["vct"] + " Expired "
-        else:
-            validity *= True
-        
-        # extract disclosure
-        nb_disclosure = len(sd_jwt)
-        logging.info("nb of disclosure = %s", nb_disclosure - 2)
-        claims = {}
-        claims.update(sd_jwt_payload)
-        for i in range(1, nb_disclosure-1):
-            _disclosure = sd_jwt[i]
-            _disclosure += "=" * ((4 - len(_disclosure) % 4) % 4)
-            try:
-                logging.info("disclosure #%s = %s", i, base64.urlsafe_b64decode(_disclosure.encode()).decode())
-                disc = base64.urlsafe_b64decode(_disclosure.encode()).decode()
-                claims.update({json.loads(disc)[1]: json.loads(disc)[2]})
-            except Exception:
-                logging.error("i = %s", i)
-                logging.error("_disclosure excluded = %s", _disclosure)
-    
-    webhook = json.loads(red.get(request_id + "_MCP").decode())["webhook"]
-    session_id = json.loads(red.get(request_id + "_MCP").decode())["session_id"]
-
-    claims.pop("status", None)
-    claims.pop("_sd", None)
-    claims.pop("iss", None)
-    claims.pop("cnf", None)
-    claims.pop("vct", None)
-    claims.pop("_sd_alg", None)
-    claims.pop("exp", None)
-    claims.pop("iat", None)
-    
-    if error_description:
-        session_data = {
-            'status': 'error',
-            'error_description': error_description
-        }
-    else:
-        session_data = {
-            "verified": True,
-            'request_id': request_id,
-            'session_id': session_id,
-            'message': wrap_with_verification(claims)
-        }
-    #red.setex(request_id + "_MCP", 1000, json.dumps(session_data))
-    requests.post(webhook, json=session_data, timeout=10)
-
-    # delete request and return to wallet
-    red.delete(request_id)
-    return jsonify('ok')
-
-
-def wrap_with_verification(data_dict):
-    return {
-        key: {
-            "value": value,
-            "verified": True
-        }
-        for key, value in data_dict.items()
-    }
-
-# --- MCP Tools GPT Function calling
-@app.route("/.well-known/mcp/tools", methods=["GET"])
-def tools():
-    data = {
-        "tools": [
-            {
-                "type": "function",
-                "function": {
-                    "name": "initiate_pid_request",
-                    "description": "Displays a QR code that allows the user to share verified identity data from their digital wallet (such as first name, last name, or other credentials). Only use this tool if the user confirms they have a wallet and explicitly agrees to use it. Do not call this tool if the user refuses or if the data has already been verified.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {},
-                        "required": []
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "create_customer_account",
-                    "description": "Creates a customer account using the user's provided personal information.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "given_name": { "type": "string", "description": "User's first name" },
-                            "family_name": { "type": "string", "description": "User's last name" },
-                            "email": { "type": "string", "description": "User's email address" }
-                        },
-                        "required": ["given_name", "family_name", "email"]
-                    }
-                }
-            }
-        ]
-    }
-    return jsonify(data)
-
-
-# --- Utility to get local IP address ---
+# Utility to extract local IP address for development server
+  # Function to get the local IP address of the machine
 def extract_ip():
     st = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
@@ -355,9 +34,199 @@ def extract_ip():
     return ip
 
 
-# --- Run the Flask server ---
+# --- Determine callback server URL based on environment ---
+myenv = os.getenv('MYENV')
+if myenv == 'aws':
+    server = 'https://verifier.wallet-provider.com/'
+else:
+    server = 'http://' + extract_ip() + ':3000/'
+
+
+PROMPT = open("system_prompt.txt", "r").read()
+
+# Initialize Flask app
+app = Flask(__name__)
+qrcode = QRcode(app)
+red = redis.Redis(host='localhost', port=6379, db=0)
+
+# Configure Flask sessions to use Redis
+app.config['SESSION_TYPE'] = 'redis'
+app.config['SESSION_PERMANENT'] = False
+app.config['SESSION_USE_SIGNER'] = True
+app.config['SESSION_KEY_PREFIX'] = 'myapp:'
+app.secret_key = 'your_secret_key_here'
+Session(app)
+
+MODEL = "gpt-4-turbo"
+
+init_app(app)
+
+@app.errorhandler(500)
+def error_500(e):
+    message.message("Error 500 on verifier = " + str(e), 'thierry.thevenet@talao.io', str(e))
+    return redirect(get_server_url())
+
+
+
+  # Simulated backend function to create a customer account (replace with real API call)
+def create_customer_account(data):
+    # here call an API to create an account
+    print("customer account = ", json.dumps(data, indent=4))
+    return data
+
+
+
+  # Main function to call GPT with chat messages and handle tool calls
+def call_gpt(message, session_id):
+    print("tools = ",tools)
+    print(message)
+
+    # First GPT call to potentially trigger a tool
+    response = client.chat.completions.create(
+        model=MODEL,
+        messages=message,
+        tools=tools(),
+        tool_choice="auto"
+    )
+
+    tool_calls = response.choices[0].message.tool_calls
+    # Check if GPT decided to call a tool (e.g. create_customer_account)
+    current_chat = "pending"
+    account = None
+    if tool_calls:
+        for tool_call in tool_calls:
+            if tool_call.function.name == "create_customer_account":
+                args = json.loads(tool_call.function.arguments)
+                enriched_args = {}
+                verified_claims = json.loads(red.get(session_id + "_verified_claims").decode())
+                for key, value in args.items():
+                # Build a dictionary with value and whether it was verified
+                    enriched_args[key] = {
+                        "value": value,
+                        "verified": True if verified_claims.get(key, {}).get("verified") == True else False
+                    }
+                create_customer_account(enriched_args)
+                message.append({
+                    "role": "function",
+                    "name": tool_call.function.name,
+                    "tool_call_id": tool_call.id,
+                    "content": json.dumps(enriched_args)
+                })
+                current_chat = "done"
+                account = enriched_args
+
+            elif tool_call.function.name == "initiate_pid_request":
+                result = initiate_oidc4vp_request(session_id, server)
+                if result.get("qr_code_base64"):
+                    return result.get("qr_code_base64"), session_id, result.get("request_id"), "pending", account
+
+        # Second GPT call with tool output injected into the conversation
+        # Second GPT call after injecting the result of the tool
+        second_response = client.chat.completions.create(
+            model=MODEL,
+            messages=message,
+            tools=tools(),
+            tool_choice="auto"
+        )
+        return second_response.choices[0].message.content, session_id, None, current_chat, account
+
+    return response.choices[0].message.content, session_id, None, current_chat, account
+
+
+
+
+# Route to serve the main chat interface
+@app.route("/")
+def index():
+    session_id = str(uuid.uuid1())
+    return render_template("chat.html", session_id=session_id)
+
+# Endpoint to handle incoming user messages
+  # Endpoint to receive and process user messages from the frontend
+@app.route("/send", methods=["POST"])
+def send():
+    user_message = request.json.get("message")
+    session_id = request.json.get("session_id")
+    source = request.json.get("source")
+
+    # Reset session if requested
+    if any(kw in user_message for kw in ["reset", "clear", "delete"]):
+        session.pop("chat", None)
+        return jsonify({"reply": "🧼 Conversation history has been cleared. Let's start fresh!"})
+
+    # Initialize session if it's new
+    if 'chat' not in session:
+        print("Chat session starts now")
+        session['chat'] = [
+            {
+                "role": "system",
+                "content": PROMPT
+            },
+            {
+                "role": "user",
+                "content": user_message
+            }
+        ]
+
+    print(session['chat'])
+    conversation = session['chat']
+
+    # Append user message with verification context
+    if source == "wallet":
+        conversation.append({
+            "role": "user",
+            "content": f"{user_message}\n\nNote: This data was received from a verified digital wallet."
+        })
+    else:
+        conversation.append({
+            "role": "user",
+            "content": f"{user_message}\n\nNote: This data has not been verified via digital wallet."
+        })
+
+    # Call GPT with current conversation
+    reply, session_id, request_id, current_chat, account = call_gpt(session['chat'], session_id)
+    print("GPT reply = ", reply)
+
+    # Append GPT's reply to session if it's not a base64 image
+    if reply:
+        if not reply.startswith("data"):
+            conversation.append({"role": "assistant", "content": reply})
+    else:
+        reply = "👋 Bye! Your account has been created"
+
+    session['chat'] = conversation
+    return jsonify({
+        "status": current_chat,
+        "reply": reply,
+        "request_id": request_id,
+        "session_id": session_id,
+        "account": account
+    })
+
+
+
+
+# Stream endpoint using Server-Sent Events for frontend updates
+  # Server-Sent Events endpoint to stream updates to the frontend
+@app.route("/chatbot_stream", methods=["GET"], defaults={'red': red})
+def chatbot_stream(red):
+    def login_event_stream(red):
+        pubsub = red.pubsub()
+        pubsub.subscribe('chatbot')
+        for message in pubsub.listen():
+            if message['type'] == 'message':
+                yield 'data: %s\n\n' % message['data'].decode()
+
+    headers = {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no"
+    }
+    return Response(login_event_stream(red), headers=headers)
+
+
+
+# Run the Flask application
 if __name__ == '__main__':
-    app.run(host=extract_ip(),
-            port=3000,
-            debug=True,
-            threaded=True)
+  # Run the Flask application on the local IP
+    app.run(host=extract_ip(), port=3000, debug=True, threaded=True)
