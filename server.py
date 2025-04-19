@@ -151,11 +151,13 @@ def initiate_oidc4vp_request(session_id, server):
 # Webhook to receive wallet verification data
 def webhook(result):
     event_data = json.dumps(result)
-    session_id = result["session_id"]
+    session_id = result.get("session_id")
+    if not session_id:
+        return
     print("\nresult message = ", result["message"])
     red.setex(session_id + "_verified_claims", 1000, json.dumps(result["message"]))
     red.publish('chatbot', event_data)
-    return "ok"
+    return True
 
 
 # request uri endpoint for wallet
@@ -189,7 +191,7 @@ def response_endpoint(request_id):
     vp_token = request.form.get('vp_token')
     if not vp_token:   # TODO
         logging.error("No vp token received")
-        return ("ok")
+        return jsonify("Access Denied"), 400
 
     #presentation_submission = request.form.get('presentation_submission')
     logging.info('vp token received = %s', vp_token)

@@ -214,7 +214,7 @@ def send():
 
 
 # Stream endpoint using Server-Sent Events for frontend updates
-  # Server-Sent Events endpoint to stream updates to the frontend
+# Server-Sent Events endpoint to stream updates to the frontend
 @app.route("/chatbot_stream", methods=["GET"], defaults={'red': red})
 def chatbot_stream(red):
     def login_event_stream(red):
