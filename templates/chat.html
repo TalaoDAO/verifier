@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Chat with MCP Agent</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div class="header">
+    <h2>🚀 An AI agent helps you create an account with your EUDI wallet!</h2>
+  </div>
+  <input type="hidden" id="session_id" value="demo-session-id">
+  <div id="container">
+    <div id="instructions-area">
+      <h3>📝 Agent objectives</h3>
+
+      <p>The agent should begin with a friendly, casual conversation to engage the user. <strong>It should collect the user's first name, last name, postal address, phone number and email address,</strong> preferably using a digital wallet. The agent must explain that a wallet helps verify personal information. If the user doesn't have a wallet or wallet data, the QR code should not be mentioned or displayed. Permission must always be requested before asking the user to use their wallet or scan a QR code. If any data is unverified, the agent can ask if the wallet contains proof. Verified fields must be treated as trusted and not requested again. The agent should focus only on missing or unverified information. Once all required data is available, it must call the account creation tool immediately. The entire interaction should feel natural, helpful, and respectful of user privacy.
+      </p>
+      <p>The user can, of course, use any type of attestation, whether or not it contains the requested information. This means that only certain pieces of information may be verified and known, as they have been explicitly confirmed. If some of the required information is missing from the attestations, the agent will then ask the user to complete it with self-declared data.</p>
+      <h3>📝 How do I play with it?</h3>
+      <ul>
+      <li>Use EUDI wallet with PID or equivalent.</li>
+      <li>Type "clear" to delete agent memory then reload the page.</li>
+      <li>Don't forget that only only first name, last name, birth date and email have been said as required.</li>
+      <li>Check the contents of the created account at the end.</li>
+
+      </ul>
+
+
+    </div>
+    <div id="chat-area">
+      <div id="messages"></div>
+      <div id="input-area">
+        <input type="text" id="input" placeholder="Type your message..." autofocus>
+      </div>
+    </div>
+    <div id="image-area">
+      <div id="thank-you-msg" style="display:none;">✅ Thank you! Your data has been received.</div>
+      <div id="goodbye-msg" style="display:none;">👋 Bye! Your account has been created.</div>
+      <img id="qr-display" src="" alt="QR Code" class="chat-image" style="display:none;">
+      <div id="wallet-card"></div>
+      <div id="account-summary" style="display:none;" class="wallet-card"></div>
+
+    </div>
+  </div>
+  <footer class="page-footer">
+    © 2025 Web3 Digital Wallet · <a href="mailto:contact@talao.io">Contact us</a>
+  </footer>
+  <script>
+    const sessionId = document.getElementById("session_id").value;
+    const input = document.getElementById("input");
+    const msgBox = document.getElementById("messages");
+    const qrDisplay = document.getElementById("qr-display");
+    const walletCard = document.getElementById("wallet-card");
+
+    // Reset QR and wallet card
+    function resetImageAndCard() {
+      qrDisplay.src = "";
+      qrDisplay.style.display = "none";
+      qrDisplay.classList.remove("hide");
+      walletCard.innerHTML = "";
+
+    // ✅ Clear feedback messages
+      document.getElementById("thank-you-msg").style.display = "none";
+      document.getElementById("goodbye-msg").style.display = "none";
+      
+    }
+
+    // Server-Sent Events
+    const source = new EventSource('/chatbot_stream');
+    source.onmessage = function (event) {
+      const result = JSON.parse(event.data);
+      if (result.session_id === sessionId) {
+        // Check if wallet data exists and hide QR
+        if (result.verified) {
+          qrDisplay.classList.add("hide");
+          setTimeout(() => {
+            qrDisplay.style.display = "none";
+            qrDisplay.classList.remove("hide");
+             // ✅ Show the Thank You message
+            document.getElementById("thank-you-msg").style.display = "block";
+          }, 400);
+        }
+        fetch("/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: result.message, source: 'wallet', session_id: sessionId })
+        })
+        .then(res => res.json())
+        .then(data => handleBotReply(data));
+      }
+    };
+
+    input.addEventListener("keypress", function (e) {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        sendMessage();
+      }
+    });
+
+    function sendMessage() {
+      const message = input.value.trim();
+      if (!message) return;
+      msgBox.innerHTML += `<div class="message user">You: ${message}</div>`;
+      input.value = "";
+      resetImageAndCard();
+      fetch("/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: message, source: 'user', session_id: sessionId })
+      })
+      .then(res => res.json())
+      .then(data => handleBotReply(data));
+    }
+
+    function handleBotReply(data) {
+      let botMsg = "";
+      // QR code or image on the right
+      if (data.status === "done") {
+        document.getElementById("thank-you-msg").style.display = "none"; 
+          document.getElementById("goodbye-msg").style.display = "block";
+      }
+      // Account data when account is created
+      if (data.account) {
+        const accountDiv = document.getElementById("account-summary");
+        let html = `<h4>🎉 Account Created</h4>`;
+
+        for (const [key, field] of Object.entries(data.account)) {
+          const label = key.replace("_", " ").replace(/\b\w/g, l => l.toUpperCase());
+          const value = field.value || "—";
+          const verified = field.verified ? "✅" : "❗";
+          html += `<p><strong>${label}:</strong> ${value} ${verified}</p>`;
+        }
+
+        accountDiv.innerHTML = html;
+        accountDiv.style.display = "block";
+        qrDisplay.style.display = "none";
+        walletCard.innerHTML = "";
+      }
+
+      if (typeof data.reply === "string" && data.reply.startsWith("data:image/")) {
+        qrDisplay.src = data.reply;
+        qrDisplay.style.display = "block";
+        botMsg = `<div class="message bot">Bot: Here is the QR code to scan with your wallet to provide personal data.</div>`;
+        walletCard.innerHTML = ""; // Remove wallet if new QR
+      } else if (data.reply && data.reply.match && data.reply.match(/\.(jpeg|jpg|png|gif|bmp|webp)$/i)) {
+        qrDisplay.src = data.reply;
+        qrDisplay.style.display = "block";
+        botMsg = `<div class="message bot">Bot: An image has been sent (see right panel).</div>`;
+        walletCard.innerHTML = "";
+      } else {
+        botMsg = `<div class="message bot">Bot: ${data.reply}</div>`;
+      }
+      msgBox.innerHTML += botMsg;
+      setTimeout(() => {
+        msgBox.scrollTop = msgBox.scrollHeight;
+      }, 50);
+    }
+
+    window.addEventListener("DOMContentLoaded", () => {
+  // Auto-send a welcome message when the page loads
+  fetch("/send", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message: "hello, I want to create my account",  // 👈 Trigger initial greeting flow
+      source: "user",
+      session_id: sessionId
+    })
+  })
+  .then(res => res.json())
+  .then(data => handleBotReply(data));
+    });
+
+  </script>
+ 
+</body>
+</html>
