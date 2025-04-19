@@ -64,7 +64,10 @@ init_app(app)
 
 @app.errorhandler(500)
 def error_500(e):
-    message.message("Error 500 on verifier = " + str(e), 'thierry.thevenet@talao.io', str(e))
+    try:
+        message.message("Error 500 on verifier = " + str(e), 'thierry.thevenet@talao.io', str(e))
+    except:
+        pass
     return redirect(get_server_url())
 
 
