@@ -121,8 +121,9 @@ def call_gpt(message, session_id):
 
             elif tool_call.function.name == "initiate_pid_request":
                 result = initiate_oidc4vp_request(session_id, server)
+                print("result = ", result)
                 if result.get("qr_code_base64"):
-                    return result.get("qr_code_base64"), session_id, result.get("request_id"), "pending", account
+                    return result.get("qr_code_base64"), result.get("authorization_request"), session_id, result.get("request_id"), "pending", account
 
         # Second GPT call with tool output injected into the conversation
         # Second GPT call after injecting the result of the tool
@@ -132,9 +133,9 @@ def call_gpt(message, session_id):
             tools=tools(),
             tool_choice="auto"
         )
-        return second_response.choices[0].message.content, session_id, None, current_chat, account
+        return second_response.choices[0].message.content, None, session_id, None, current_chat, account
 
-    return response.choices[0].message.content, session_id, None, current_chat, account
+    return response.choices[0].message.content, None, session_id, None, current_chat, account
 
 
 
@@ -189,8 +190,9 @@ def send():
 
     # Call GPT with current conversation
     try:
-        reply, session_id, request_id, current_chat, account = call_gpt(session['chat'], session_id)
+        reply, authorization_request, session_id, request_id, current_chat, account = call_gpt(session['chat'], session_id)
         print("GPT reply = ", reply)
+        print("authorization request = ", authorization_request)
     except:
         return jsonify("server error")
 
@@ -204,6 +206,7 @@ def send():
     session['chat'] = conversation
     return jsonify({
         "status": current_chat,
+        "authorization_request": authorization_request,
         "reply": reply,
         "request_id": request_id,
         "session_id": session_id,

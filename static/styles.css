@@ -1,171 +1,151 @@
-body, html {
+html, body {
   height: 100%;
-  margin: 0;
-  font-family: 'Segoe UI', sans-serif;
-  background: #f5f6fa;
-}
-
-.header {
-  margin: 30px 0 15px 0;
-  text-align: center;
-}
-
-.header h2 {
-  font-weight: 600;
-  font-size: 2rem;
-  color: #282d3c;
-  margin: 0;
-  letter-spacing: 1px;
 }
 
 #container {
+  min-height: calc(100vh - 100px); /* ajuste en fonction de la hauteur du header/footer */
   display: flex;
-  height: 80vh;
-  max-width: 1600px;
-  margin: 0 auto;
-  background: #fff;
-  border-radius: 18px;
-  box-shadow: 0 2px 16px rgba(33,38,64,0.08);
-  overflow: hidden;
-}
-
-#instructions-area {
-  flex: 1;
-  background-color: #f9fafc;
-  border-right: 1px solid #edeef3;
-  padding: 32px 24px;
-  font-size: 0.95rem;
-  color: #2c3e50;
-  overflow-y: auto;
-}
-
-#instructions-area h3 {
-  margin-top: 0;
-  font-size: 1.3rem;
-  color: #1a2a45;
+  flex-wrap: wrap;
+  gap: 20px;
+  padding: 20px;
+  align-items: stretch;
 }
 
 #chat-area {
-  flex: 2;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid #edeef3;
-  background-color: #ffffff;
-  padding: 32px 24px 18px 32px;
+  flex: 1 1 auto;
 }
 
 #messages {
-  flex: 1;
-  overflow-y: auto;
-  margin-bottom: 20px;
-}
-
-#input-area {
-  padding-top: 8px;
-  border-top: 1px solid #edeef3;
-  background: white;
-}
-
-#input {
-  width: 100%;
-  padding: 12px;
-  font-size: 1rem;
-  border-radius: 8px;
-  border: 1px solid #d1d5db;
-  outline: none;
-  box-sizing: border-box;
-  background: #fff;
-  transition: border 0.2s;
-}
-
-#input:focus {
-  border-color: #7696ff;
+  flex-grow: 1;
+  min-height: 200px;
 }
 
 .message {
-  margin: 10px 0;
-  padding: 8px 14px;
-  border-radius: 10px;
-  max-width: 85%;
-  word-break: break-word;
-  font-size: 1rem;
+  margin-bottom: 10px;
+  padding: 10px 15px;
+  border-radius: 12px;
+  max-width: 80%;
+  clear: both;
+  word-wrap: break-word;
 }
 
-.user {
-  font-weight: bold;
-  background: #dde7ff;
+#wallet-deeplink {
+  display: none; /* s'affichera dynamiquement via JS */
+}
+
+.message.user {
+  background-color: #d1ecf1;
+  color: #0c5460;
   align-self: flex-end;
-  color: #1a1d27;
   margin-left: auto;
 }
 
-.bot {
-  color: #4166bb;
-  background: #e6e9f5;
+.message.bot {
+  background-color: #e8eaf6;
+  color: #1a237e;
   align-self: flex-start;
   margin-right: auto;
 }
 
-#image-area {
-  flex: 1;
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Segoe UI', sans-serif;
+  background: #f5f6fa;
+  color: #2c3e50;
+}
+
+.header {
+  padding: 20px;
+  text-align: center;
+  background: white;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+#container {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  background-color: #ffffff;
-  padding-top: 40px;
-  padding-left: 28px;
-  padding-right: 28px;
-  min-width: 320px;
-  position: relative;
+  flex-wrap: wrap;
+  gap: 20px;
+  padding: 20px;
+}
+
+#instructions-area, #chat-area, #image-area {
+  background: white;
+  padding: 20px;
+  border-radius: 10px;
+  flex: 1 1 300px;
+  min-width: 280px;
+}
+
+#messages {
+  height: 300px;
+  overflow-y: auto;
+  border: 1px solid #ccc;
+  padding: 10px;
+  border-radius: 8px;
+  margin-bottom: 10px;
+}
+
+#input-area input {
+  width: 100%;
+  padding: 12px;
+  font-size: 1rem;
+  border: 1px solid #ccc;
+  border-radius: 8px;
 }
 
 .chat-image {
-  max-width: 95%;
-  max-height: 300px;
-  border: 2px solid #aac2ff;
-  border-radius: 12px;
-  box-shadow: 0 2px 12px rgba(100,140,255,0.09);
-  opacity: 1;
-  transition: opacity 0.5s;
+  max-width: 100%;
   display: block;
-  margin: 0 auto 16px auto;
+  margin-top: 20px;
+  border-radius: 8px;
 }
 
-.chat-image.hide {
-  opacity: 0;
-  transition: opacity 0.4s;
+.wallet-link {
+  display: inline-block;
+  padding: 12px 20px;
+  background-color: #007bff;
+  color: white;
+  text-align: center;
+  border-radius: 8px;
+  text-decoration: none;
+  margin-top: 20px;
+  font-weight: bold;
 }
 
 .wallet-card {
   background: #f4f8ff;
   border: 1px solid #b8d4fa;
-  border-radius: 12px;
-  box-shadow: 0 1px 5px rgba(40,102,187,0.06);
-  padding: 20px 22px;
-  margin-top: 16px;
-  max-width: 90%;
-  word-break: break-word;
-  text-align: center;
-  color: #27345a;
-  font-size: 1rem;
-  font-family: 'Segoe UI', sans-serif;
+  padding: 10px;
+  margin-top: 15px;
+  border-radius: 10px;
 }
 
 .page-footer {
-  position: absolute;
-  bottom: 10px;
-  right: 20px;
+  text-align: right;
+  padding: 10px 20px;
   font-size: 0.85rem;
+  background: #fff;
+  border-top: 1px solid #eee;
   color: #888;
-  font-family: 'Segoe UI', sans-serif;
 }
 
-.page-footer a {
-  color: #4166bb;
-  text-decoration: none;
-}
 
-.page-footer a:hover {
-  text-decoration: underline;
+/* Responsive rules */
+@media (max-width: 768px) {
+  #instructions-area {
+    display: none;
+  }
+
+  #qr-display,
+  #wallet-deeplink {
+    width: 100%;
+    max-width: 100%;
+  }
 }

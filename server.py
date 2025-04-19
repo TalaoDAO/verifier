@@ -132,7 +132,7 @@ def get_qrcode(client_id, request_id, server):
 
 def initiate_oidc4vp_request(session_id, server):
     request_id = str(uuid.uuid4())
-    presentation_url = get_qrcode("any", request_id, server)
+    authorization_request = get_qrcode("any", request_id, server)
     red.setex(request_id + "_MCP", 10000, json.dumps({
         "status": "pending",
         "session_id": session_id
@@ -141,7 +141,8 @@ def initiate_oidc4vp_request(session_id, server):
         "status": "pending",
         "request_id": request_id,
         "session_id": session_id,
-        "qr_code_base64": generate_qr_base64(presentation_url)
+        "authorization_request": authorization_request,
+        "qr_code_base64": generate_qr_base64(authorization_request)
     }
     logging.info("Response MCP tools 1 = %s", json.dumps(data, indent=4))
     return data
@@ -188,10 +189,11 @@ def response_endpoint(request_id):
         return jsonify("Request timeout"), 408
 
     # get vp_token and presentation_submission
+    presentation_submission = request.form.get('presentation_submission')
     vp_token = request.form.get('vp_token')
-    if not vp_token:   # TODO
-        logging.error("No vp token received")
-        return jsonify("Access Denied"), 400
+    if not vp_token or not presentation_submission:   # TODO
+        logging.error("Response is incorrect, vp token or presentation submission missing")
+        return jsonify("Access denied"), 400
 
     #presentation_submission = request.form.get('presentation_submission')
     logging.info('vp token received = %s', vp_token)
