@@ -9,7 +9,9 @@ import uuid
 from server import tools, initiate_oidc4vp_request, init_app
 import os
 import message
+import logging
 
+logging.basicConfig(level=logging.INFO)
 
 # Load OpenAI API key
 openapi_key = json.load(open("keys.json", "r"))['openai']
@@ -82,8 +84,6 @@ def create_customer_account(data):
 
   # Main function to call GPT with chat messages and handle tool calls
 def call_gpt(message, session_id):
-    print("tools = ",tools)
-    print(message)
 
     # First GPT call to potentially trigger a tool
     response = client.chat.completions.create(
@@ -95,8 +95,8 @@ def call_gpt(message, session_id):
 
     tool_calls = response.choices[0].message.tool_calls
     # Check if GPT decided to call a tool (e.g. create_customer_account)
-    current_chat = "pending"
-    account = None
+    status = "pending"
+    user_account = None
     if tool_calls:
         for tool_call in tool_calls:
             if tool_call.function.name == "create_customer_account":
@@ -109,23 +109,25 @@ def call_gpt(message, session_id):
                         "value": value,
                         "verified": True if verified_claims.get(key, {}).get("verified") == True else False
                     }
-                create_customer_account(enriched_args)
+                result = create_customer_account(enriched_args)
                 message.append({
                     "role": "function",
                     "name": tool_call.function.name,
                     "tool_call_id": tool_call.id,
-                    "content": json.dumps(enriched_args)
+                    "content": json.dumps(result)
                 })
-                current_chat = "done"
-                account = enriched_args
+                status = "done"
+                user_account = enriched_args
 
-            elif tool_call.function.name == "initiate_pid_request":
+            elif tool_call.function.name == "initiate_oidc4vp_request":
                 result = initiate_oidc4vp_request(session_id, server)
-                print("result = ", result)
-                if result.get("qr_code_base64"):
-                    return result.get("qr_code_base64"), result.get("authorization_request"), session_id, result.get("request_id"), "pending", account
-
-        # Second GPT call with tool output injected into the conversation
+                message.append({
+                    "role": "function",
+                    "name": tool_call.function.name,
+                    "tool_call_id": tool_call.id,
+                    "content": "QR code has been displayed to user"
+                })
+                
         # Second GPT call after injecting the result of the tool
         second_response = client.chat.completions.create(
             model=MODEL,
@@ -133,9 +135,11 @@ def call_gpt(message, session_id):
             tools=tools(),
             tool_choice="auto"
         )
-        return second_response.choices[0].message.content, None, session_id, None, current_chat, account
+        if result.get("qr_code_base64"):
+            return result.get("qr_code_base64"), result.get("authorization_request"), session_id, result.get("request_id"), "pending", user_account
+        return second_response.choices[0].message.content, None, session_id, None, status, user_account
 
-    return response.choices[0].message.content, None, session_id, None, current_chat, account
+    return response.choices[0].message.content, None, session_id, None, status, user_account
 
 
 
@@ -180,37 +184,44 @@ def send():
     if source == "wallet":
         conversation.append({
             "role": "user",
-            "content": f"{user_message}\n\nNote: This data was received from a verified digital wallet."
+            "content": f"{user_message}\n\nNote: This data was received from the digital wallet."
         })
     else:
         conversation.append({
             "role": "user",
-            "content": f"{user_message}\n\nNote: This data has not been verified via digital wallet."
+            "content": f"{user_message}\n\nNote: This data was received from the user and has not been verified."
         })
 
     # Call GPT with current conversation
     try:
-        reply, authorization_request, session_id, request_id, current_chat, account = call_gpt(session['chat'], session_id)
-        print("GPT reply = ", reply)
-        print("authorization request = ", authorization_request)
-    except:
-        return jsonify("server error")
+        gpt_reply, authorization_request, session_id, request_id, status, user_account = call_gpt(conversation, session_id)
+        logging.info("GPT reply = %s", gpt_reply)
+    except Exception:
+        logging.error("server error with call_gpt")
+        return jsonify({
+            "status": "error",
+            "authorization_request": None,
+            "reply": "It is an AI agent error",
+            "request_id": None,
+            "session_id": session_id,
+            "account": None
+        })
 
     # Append GPT's reply to session if it's not a base64 image
-    if reply:
-        if not reply.startswith("data"):
-            conversation.append({"role": "assistant", "content": reply})
+    if gpt_reply:
+        if not gpt_reply.startswith("data"):
+            conversation.append({"role": "assistant", "content": gpt_reply})
     else:
-        reply = "👋 Bye! Your account has been created"
+        gpt_reply = "👋 Bye! Your account has been created"
 
     session['chat'] = conversation
     return jsonify({
-        "status": current_chat,
+        "status": status,
         "authorization_request": authorization_request,
-        "reply": reply,
+        "reply": gpt_reply,
         "request_id": request_id,
         "session_id": session_id,
-        "account": account
+        "account": user_account
     })
 
 

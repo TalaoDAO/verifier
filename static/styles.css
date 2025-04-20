@@ -35,6 +35,17 @@ html, body {
   display: none; /* s'affichera dynamiquement via JS */
 }
 
+#instructions-area ul {
+  padding-left: 20px; /* indentation du bloc <ul> */
+  margin-top: 10px;
+}
+
+#instructions-area li {
+  margin-bottom: 6px;
+  text-indent: -10px;  /* optionnel : aligner mieux le texte avec les puces */
+  padding-left: 10px;  /* petit espace entre la puce et le texte */
+}
+
 .message.user {
   background-color: #d1ecf1;
   color: #0c5460;

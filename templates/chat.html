@@ -15,16 +15,19 @@
   <div id="container">
     <div id="instructions-area">
       <h3>📝 Agent objectives</h3>
-      <p>The agent should begin with a friendly, casual conversation to engage the user. <strong>It should collect the user's first name, last name, postal address, phone number and email address,</strong> preferably using a digital wallet. The agent must explain that a wallet helps verify personal information. If the user doesn't have a wallet or wallet data, the QR code should not be mentioned or displayed. Permission must always be requested before asking the user to use their wallet or scan a QR code. If any data is unverified, the agent can ask if the wallet contains proof. Verified fields must be treated as trusted and not requested again. The agent should focus only on missing or unverified information. Once all required data is available, it must call the account creation tool immediately. The entire interaction should feel natural, helpful, and respectful of user privacy.
-      </p><br>
+      <br>
+      <p>The agent should begin with a friendly, casual conversation to engage the user. <strong>It should collect the user's first name, last name, postal address, phone number and email address,</strong> preferably using a digital wallet. The agent must explain that a wallet helps verify personal information. If the user doesn't have a wallet or wallet data, the QR code should not be mentioned or displayed. Permission must always be requested before asking the user to use their wallet or scan a QR code. </p>
+      <br>
+      <p>If any data is unverified, the agent can ask if the wallet contains proof. Verified fields must be treated as trusted and not requested again. The agent should focus only on missing or unverified information. Once all required data is available, it must call the account creation tool immediately. The entire interaction should feel natural, helpful, and respectful of user privacy.</p>
+      <br>
       <p>The user can, of course, use any type of attestation, whether or not it contains the requested information. This means that only certain pieces of information may be verified and known, as they have been explicitly confirmed. If some of the required information is missing from the attestations, the agent will then ask the user to complete it with self-declared data.</p>
-     <br>
+      <br>
       <h3>📝 How do I play with it?</h3>
       <ul>
         <li>Use EUDI wallet with PID or equivalent.</li>
         <li>Type "clear" to delete agent memory then reload the page.</li>
         <li>Don't forget that only first name, last name, birth date and email have been said as required.</li>
-        <li>Check the contents of the created account at the end.</li>
+        <li>Check the contents of the created account at the end with verified data and self attested data.</li>
       </ul>
     </div>
     <div id="chat-area">
@@ -35,7 +38,9 @@
     </div>
     <div id="image-area">
       <div id="thank-you-msg" style="display:none;">✅ Thank you! Your data has been received.</div>
-      <div id="goodbye-msg" style="display:none;">👋 Bye! Your account has been created.</div>
+      <div id="goodbye-msg" style="display:none;">👋 Bye! Your account has been created.</div>  
+      <div id="error-msg" style="display:none;">❗ We noticed an error with the wallet response.</div>
+
       <img id="qr-display" class="chat-image" alt="QR Code" style="display:none;">
       <a id="wallet-deeplink" class="wallet-link" href="#" target="_blank" style="display:none;">📲 Open in Wallet</a>
       <div id="wallet-card"></div>
@@ -61,6 +66,7 @@ function resetImageAndCard() {
   walletCard.innerHTML = "";
   document.getElementById("thank-you-msg").style.display = "none";
   document.getElementById("goodbye-msg").style.display = "none";
+  document.getElementById("error-msg").style.display = "none";
 }
 
 const source = new EventSource('/chatbot_stream');
@@ -70,6 +76,9 @@ source.onmessage = function (event) {
     if (result.verified) {
       qrDisplay.style.display = "none";
       document.getElementById("thank-you-msg").style.display = "block";
+    } else {
+      qrDisplay.style.display = "none";
+      document.getElementById("error-msg").style.display = "block";
     }
     fetch("/send", {
       method: "POST",
@@ -111,6 +120,10 @@ function handleBotReply(data) {
   if (data.status === "done") {
     document.getElementById("thank-you-msg").style.display = "none";
     document.getElementById("goodbye-msg").style.display = "block";
+  }
+  if (data.status === "error") {
+    document.getElementById("thank-you-msg").style.display = "none";
+    document.getElementById("error-msg").style.display = "block";
   }
 
   if (data.account) {

@@ -144,22 +144,9 @@ def initiate_oidc4vp_request(session_id, server):
         "authorization_request": authorization_request,
         "qr_code_base64": generate_qr_base64(authorization_request)
     }
-    logging.info("Response MCP tools 1 = %s", json.dumps(data, indent=4))
+    logging.info("Response MCP tools 1 wirt QR code")
     return data
     
-
-
-# Webhook to receive wallet verification data
-def webhook(result):
-    event_data = json.dumps(result)
-    session_id = result.get("session_id")
-    if not session_id:
-        return
-    print("\nresult message = ", result["message"])
-    red.setex(session_id + "_verified_claims", 1000, json.dumps(result["message"]))
-    red.publish('chatbot', event_data)
-    return True
-
 
 # request uri endpoint for wallet
 def request_uri(stream_id):
@@ -256,21 +243,25 @@ def response_endpoint(request_id):
     claims.pop("exp", None)
     claims.pop("iat", None)
     
-    if error_description:
-        session_data = {
-            'status': 'error',
-            'error_description': error_description
-        }
-    else:
-        session_data = {
-            "verified": True,
+    session_data = {
             'request_id': request_id,
-            'session_id': session_id,
-            'message': wrap_with_verification(claims)
+            'session_id': session_id, 
         }
-        
-    # publish data
-    webhook(session_data)
+    if error_description:
+        session_data.update({
+            'verified': False,
+            'message': "We received an error response from the wallet"
+        })
+    else:
+        session_data.update({
+            "verified": True,
+            'message': wrap_with_verification(claims)
+        })        
+        # store verified data
+        red.setex(session_id + "_verified_claims", 1000, json.dumps(wrap_with_verification(claims)))
+
+    # publish data to front
+    red.publish('chatbot', json.dumps(session_data))
 
     # delete request and return to wallet
     red.delete(request_id)
@@ -286,14 +277,15 @@ def wrap_with_verification(data_dict):
         for key, value in data_dict.items()
     }
 
-# --- MCP Tools GPT Function calling
+
+# --- Tools GPT Function calling
 def tools():
     data = {
         "tools": [
             {
                 "type": "function",
                 "function": {
-                    "name": "initiate_pid_request",
+                    "name": "initiate_oidc4vp_request",
                     "description": "Displays a QR code that allows the user to share verified identity data from their digital wallet (such as first name, last name, or other credentials). Only use this tool if the user confirms they have a wallet and explicitly agrees to use it. Do not call this tool if the user refuses or if the data has already been verified.",
                     "parameters": {
                         "type": "object",
