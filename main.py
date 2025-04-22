@@ -125,7 +125,7 @@ def call_gpt(message, session_id):
                     "role": "function",
                     "name": tool_call.function.name,
                     "tool_call_id": tool_call.id,
-                    "content": "A QR code or a button has been displayed to user, we are waiting for him to scan or clic the button"
+                    "content": "A QR code or a button has been displayed to user, we are waiting for the data from his wallet"
                 })
                 
         # Second GPT call after injecting the result of the tool

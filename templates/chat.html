@@ -160,11 +160,17 @@ function handleBotReply(data) {
 }
 
 window.addEventListener("DOMContentLoaded", () => {
+  const isMobile = window.innerWidth < 768;
+  if (isMobile){
+    var user_message = "hello, I want to create my account and i am using a mobile";
+  } else {
+    var user_message = "hello, I want to create my account and I am using my desktop";
+  }
   fetch("/send", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      message: "hello, I want to create my account",
+      message: user_message,
       source: "user",
       session_id: sessionId
     })
