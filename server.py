@@ -255,7 +255,7 @@ def response_endpoint(request_id):
     else:
         session_data.update({
             "verified": True,
-            'message': "Data has been sent by user's wallet : " + wrap_with_verification(claims)
+            'message': "Data has been sent by user's wallet : " + json.dumps(wrap_with_verification(claims))
         })        
         # store verified data
         red.setex(session_id + "_verified_claims", 1000, json.dumps(wrap_with_verification(claims)))
