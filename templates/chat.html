@@ -132,7 +132,7 @@ function handleBotReply(data) {
     for (const [key, field] of Object.entries(data.account)) {
       const label = key.replace("_", " ").replace(/\b\w/g, l => l.toUpperCase());
       const value = field.value || "—";
-      const verified = field.verified ? "✅" : "❗";
+      const verified = field.verified ? "✅" : "❓";
       html += `<p><strong>${label}:</strong> ${value} ${verified}</p>`;
     }
     accountDiv.innerHTML = html;

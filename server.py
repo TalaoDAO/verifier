@@ -255,7 +255,7 @@ def response_endpoint(request_id):
     else:
         session_data.update({
             "verified": True,
-            'message': wrap_with_verification(claims)
+            'message': "Data has been sent by user's wallet : " + wrap_with_verification(claims)
         })        
         # store verified data
         red.setex(session_id + "_verified_claims", 1000, json.dumps(wrap_with_verification(claims)))
@@ -286,7 +286,7 @@ def tools():
                 "type": "function",
                 "function": {
                     "name": "initiate_oidc4vp_request",
-                    "description": "Displays a QR code that allows the user to share verified identity data from their digital wallet (such as first name, last name, or other credentials). Only use this tool if the user confirms they have a wallet and explicitly agrees to use it. Do not call this tool if the user refuses or if the data has already been verified.",
+                    "description": "Displays a QR code or a button that allows the user to share verified identity data from their digital wallet (such as first name, last name, or other credentials). Only use this tool if the user confirms they have a wallet and explicitly agrees to use it. Do not call this tool if the user refuses or if the data has already been verified.",
                     "parameters": {
                         "type": "object",
                         "properties": {},
