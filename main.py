@@ -77,7 +77,7 @@ def error_500(e):
   # Simulated backend function to create a customer account (replace with real API call)
 def create_customer_account(data):
     # here call an API to create an account
-    print("customer account = ", json.dumps(data, indent=4))
+    logging.info("customer account = %s", json.dumps(data, indent=4))
     return data
 
 
@@ -103,6 +103,7 @@ def call_gpt(message, session_id):
                 args = json.loads(tool_call.function.arguments)
                 enriched_args = {}
                 if red.get(session_id + "_verified_claims"):
+                    # some claims have been verified
                     verified_claims = json.loads(red.get(session_id + "_verified_claims").decode())
                     for key, value in args.items():
                         enriched_args[key] = {
@@ -167,11 +168,18 @@ def send():
     # Reset session if requested
     if any(kw in user_message for kw in ["reset", "clear", "delete"]):
         session.pop("chat", None)
-        return jsonify({"reply": "🧼 Conversation history has been cleared. Let's start fresh!"})
+        return jsonify({
+            "status": "clear",
+            "authorization_request": None,
+            "reply": "Bye !",
+            "request_id": None,
+            "session_id": session_id,
+            "account": None
+        })
 
     # Initialize session if it's new
     if 'chat' not in session:
-        print("Chat session starts now")
+        logging.info("Chat session starts now")
         session['chat'] = [
             {
                 "role": "system",
@@ -183,14 +191,14 @@ def send():
             }
         ]
 
-    print(session['chat'])
+    logging.info("Conversation = %s", session['chat'])
     conversation = session['chat']
 
     # Append user message with verification context
     if source == "wallet":
         conversation.append({
             "role": "user",
-            "content": f"{user_message}\n\nNote: This data was received from the digital wallet."
+            "content": f"{user_message}\n\nNote: This data was received from the digital wallet and are verified."
         })
     else:
         conversation.append({

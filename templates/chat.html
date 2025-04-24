@@ -14,7 +14,7 @@
   <input type="hidden" id="session_id" value="{{session_id}}">
   <div id="container">
     <div id="instructions-area">
-      <h3>📝 Agent objectives</h3>
+      <h3>📝 Agent instructions</h3>
       <br>
       <p>The agent should begin with a friendly, casual conversation to engage the user. <strong>It should collect the user's first name, last name, postal address, phone number and email address,</strong> preferably using a digital wallet. The agent must explain that a wallet helps verify personal information. If the user doesn't have a wallet or wallet data, the QR code should not be mentioned or displayed. Permission must always be requested before asking the user to use their wallet or scan a QR code. </p>
       <br>
@@ -24,8 +24,8 @@
       <br>
       <h3>📝 How do I play with it?</h3>
       <ul>
-        <li>Use EUDI wallet with PID or equivalent.</li>
-        <li>Type "clear" to delete agent memory then reload the page.</li>
+        <li>Use an <a href="https://talao.io">EUDI wallet</a> with PID or equivalent. However the agent will accept your data even if you do not have any wallet.</li>
+        <li>Type "clear" to delete agent memory, the page will be reloaded after 5 seconds.</li>
         <li>Don't forget that only first name, last name, birth date and email have been said as required.</li>
         <li>Check the contents of the created account at the end with verified data and self attested data.</li>
       </ul>
@@ -38,11 +38,12 @@
     </div>
     <div id="image-area">
       <div id="thank-you-msg" style="display:none;">✅ Thank you! Your data has been received.</div>
-      <div id="goodbye-msg" style="display:none;">👋 Bye! Your account has been created.</div>  
-      <div id="error-msg" style="display:none;">❗ We noticed an error with the wallet response.</div>
+      <div id="goodbye-msg" style="display:none;">👋 Your account has been created.</div>  
+      <div id="error-msg" style="display:none;">❗ Sorry, We noticed an error with the wallet response.</div>
+      <div id="clear-msg" style="display:none;">🧼 Conversation history has been cleared. let's start fresh!</div>
 
       <img id="qr-display" class="chat-image" alt="QR Code" style="display:none;">
-      <a id="wallet-deeplink" class="wallet-link" href="#" target="_blank" style="display:none;">📲 Open in Wallet</a>
+      <a id="wallet-deeplink" class="wallet-link" href="#" target="_blank" style="display:none;">📲 Open my Wallet</a>
       <div id="wallet-card"></div>
       <div id="account-summary" style="display:none;" class="wallet-card"></div>
     </div>
@@ -67,6 +68,8 @@ function resetImageAndCard() {
   document.getElementById("thank-you-msg").style.display = "none";
   document.getElementById("goodbye-msg").style.display = "none";
   document.getElementById("error-msg").style.display = "none";
+  document.getElementById("clear-msg").style.display = "none";
+
 }
 
 const source = new EventSource('/chatbot_stream');
@@ -83,7 +86,10 @@ source.onmessage = function (event) {
     fetch("/send", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: result.message, source: 'wallet', session_id: sessionId })
+      body: JSON.stringify({ 
+        message: result.message,
+        source: 'wallet',
+        session_id: sessionId })
     })
     .then(res => res.json())
     .then(data => handleBotReply(data));
@@ -98,15 +104,18 @@ input.addEventListener("keypress", function (e) {
 });
 
 function sendMessage() {
-  const message = input.value.trim();
-  if (!message) return;
-  msgBox.innerHTML += `<div class="message user">You: ${message}</div>`;
+  const userMessage = input.value.trim();
+  if (!userMessage) return;
+  msgBox.innerHTML += `<div class="message user">You: ${userMessage}</div>`;
   input.value = "";
   resetImageAndCard();
   fetch("/send", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, source: 'user', session_id: sessionId })
+    body: JSON.stringify({ 
+      message: userMessage,
+      source: 'user',
+      session_id: sessionId })
   })
   .then(res => res.json())
   .then(data => handleBotReply(data));
@@ -121,14 +130,22 @@ function handleBotReply(data) {
     document.getElementById("thank-you-msg").style.display = "none";
     document.getElementById("goodbye-msg").style.display = "block";
   }
-  if (data.status === "error") {
+  else if (data.status === "error") {
     document.getElementById("thank-you-msg").style.display = "none";
     document.getElementById("error-msg").style.display = "block";
+  }
+  else if (data.status === "clear") {
+    document.getElementById("thank-you-msg").style.display = "none";
+    document.getElementById("clear-msg").style.display = "block";
+    document.getElementById("account-summary").style.display = "none";
+    setTimeout(() => {
+      location.reload();
+    }, 5000); // 5000 millisecondes = 5 secondes
   }
 
   if (data.account) {
     const accountDiv = document.getElementById("account-summary");
-    let html = `<h4>🎉 Account Created</h4>`;
+    let html = `<h4>🎉 Account Created</h4><br>`;
     for (const [key, field] of Object.entries(data.account)) {
       const label = key.replace("_", " ").replace(/\b\w/g, l => l.toUpperCase());
       const value = field.value || "—";
@@ -140,8 +157,8 @@ function handleBotReply(data) {
     qrDisplay.style.display = "none";
     walletCard.innerHTML = "";
   }
-
-  if (typeof data.reply === "string" && data.reply.startsWith("data:image/")) {
+  
+  if (data.reply.startsWith("data:image/")) {
     qrDisplay.style.display = "none";
     deeplink.style.display = "none";
     if (isMobile) {
@@ -161,16 +178,12 @@ function handleBotReply(data) {
 
 window.addEventListener("DOMContentLoaded", () => {
   const isMobile = window.innerWidth < 768;
-  if (isMobile){
-    var user_message = "hello, I want to create my account and i am using a mobile";
-  } else {
-    var user_message = "hello, I want to create my account and I am using my desktop";
-  }
+  const userMessage = `hello, I want to create my account and I am using my ${isMobile ? "mobile" : "desktop"}`;
   fetch("/send", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      message: user_message,
+      message: userMessage,
       source: "user",
       session_id: sessionId
     })
