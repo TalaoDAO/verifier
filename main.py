@@ -105,10 +105,9 @@ def call_gpt(message, session_id):
                 if red.get(session_id + "_verified_claims"):
                     verified_claims = json.loads(red.get(session_id + "_verified_claims").decode())
                     for key, value in args.items():
-                    # Build a dictionary with value and whether it was verified
                         enriched_args[key] = {
                             "value": value,
-                            "verified": True if verified_claims.get(key, {}).get("verified") == True else False
+                            "verified": True if (verified_claims.get(key, {}).get("verified") == True) else False
                         }
                 else:
                     for key, value in args.items():
@@ -200,19 +199,19 @@ def send():
         })
 
     # Call GPT with current conversation
-    #try:
-    gpt_reply, authorization_request, session_id, request_id, status, user_account = call_gpt(conversation, session_id)
-    #    logging.info("GPT reply = %s", gpt_reply)
-    #except Exception as e:
-    #    logging.error("server error with call_gpt for " + str(e))
-    #    return jsonify({
-    #        "status": "error",
-    #        "authorization_request": None,
-    #        "reply": "It is an AI agent error",
-    #        "request_id": None,
-    #        "session_id": session_id,
-    #        "account": None
-    #    })
+    try:
+        gpt_reply, authorization_request, session_id, request_id, status, user_account = call_gpt(conversation, session_id)
+        logging.info("GPT reply = %s", gpt_reply)
+    except Exception as e:
+        logging.error("server error with call_gpt for " + str(e))
+        return jsonify({
+            "status": "error",
+            "authorization_request": None,
+            "reply": "It is an AI agent error",
+            "request_id": None,
+            "session_id": session_id,
+            "account": None
+        })
 
     # Append GPT's reply to session if it's not a base64 image
     if gpt_reply:
