@@ -23,7 +23,6 @@ client = OpenAI(
 )
 
 # Utility to extract local IP address for development server
-  # Function to get the local IP address of the machine
 def extract_ip():
     st = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
@@ -127,7 +126,7 @@ def call_gpt(message, session_id):
                 user_account = enriched_args
 
             elif tool_call.function.name == "initiate_oidc4vp_request":
-                result = initiate_oidc4vp_request(session_id, server)
+                result = initiate_oidc4vp_request(session_id, server, tool_call.id)
                 message.append({
                     "role": "function",
                     "name": tool_call.function.name,
@@ -143,10 +142,10 @@ def call_gpt(message, session_id):
             tool_choice="auto"
         )
         if result.get("qr_code_base64"):
-            return result.get("qr_code_base64"), result.get("authorization_request"), session_id, result.get("request_id"), "pending", user_account
-        return second_response.choices[0].message.content, None, session_id, None, status, user_account
+            return result.get("qr_code_base64"), result.get("authorization_request"), session_id, "pending", user_account
+        return second_response.choices[0].message.content, None, session_id, status, user_account
 
-    return response.choices[0].message.content, None, session_id, None, status, user_account
+    return response.choices[0].message.content, None, session_id, status, user_account
 
 
 
@@ -157,8 +156,8 @@ def index():
     session_id = str(uuid.uuid1())
     return render_template("chat.html", session_id=session_id)
 
-# Endpoint to handle incoming user messages
-  # Endpoint to receive and process user messages from the frontend
+
+# Endpoint to receive and process user messages from the frontend
 @app.route("/send", methods=["POST"])
 def send():
     user_message = request.json.get("message")
@@ -172,7 +171,6 @@ def send():
             "status": "clear",
             "authorization_request": None,
             "reply": "Bye !",
-            "request_id": None,
             "session_id": session_id,
             "account": None
         })
@@ -208,7 +206,7 @@ def send():
 
     # Call GPT with current conversation
     try:
-        gpt_reply, authorization_request, session_id, request_id, status, user_account = call_gpt(conversation, session_id)
+        gpt_reply, authorization_request, session_id, status, user_account = call_gpt(conversation, session_id)
         logging.info("GPT reply = %s", gpt_reply)
     except Exception as e:
         logging.error("server error with call_gpt for " + str(e))
@@ -216,7 +214,6 @@ def send():
             "status": "error",
             "authorization_request": None,
             "reply": "It is an AI agent error",
-            "request_id": None,
             "session_id": session_id,
             "account": None
         })
@@ -233,7 +230,6 @@ def send():
         "status": status,
         "authorization_request": authorization_request,
         "reply": gpt_reply,
-        "request_id": request_id,
         "session_id": session_id,
         "account": user_account
     })

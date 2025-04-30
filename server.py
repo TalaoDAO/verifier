@@ -24,8 +24,8 @@ red = redis.Redis(host='localhost', port=6379, db=0)
 
 def init_app(app):
     # endpoints for OpenId customer application
-    app.add_url_rule('/verifier/request_uri/<stream_id>', view_func=request_uri, methods=['GET', 'POST'])
-    app.add_url_rule('/verifier/response_uri/<request_id>',  view_func=response_endpoint, methods=['POST'])
+    app.add_url_rule('/verifier/request_uri/<tool_call_id>', view_func=request_uri, methods=['GET', 'POST'])
+    app.add_url_rule('/verifier/response_uri/<tool_call_id>',  view_func=response_endpoint, methods=['POST'])
     return
 
 
@@ -86,8 +86,8 @@ def build_jwt_request(key, kid, authorization_request) -> str:
         return _token
 
 
-# --- Generate QR code URL and session data for PID verification ---
-def get_qrcode(client_id, request_id, server):
+# --- Generate QR code URL and session data verification ---
+def get_qrcode(client_id, tool_call_id, server):
     verifier_data = get_verifier_data(client_id)
     presentation_definition = verifier_data['presentation_definition']
     nonce = str(uuid.uuid1())
@@ -95,7 +95,7 @@ def get_qrcode(client_id, request_id, server):
     authorization_request = {
         "response_type": "vp_token",
         "nonce": nonce,
-        "response_uri": server + 'verifier/response_uri/' + request_id,
+        "response_uri": server + 'verifier/response_uri/' + tool_call_id,
         "client_id_scheme": "did",
         "client_id": verifier_data['did'],
         "aud": 'https://self-issued.me/v2',
@@ -115,13 +115,11 @@ def get_qrcode(client_id, request_id, server):
         "request_as_jwt": request_as_jwt,
         "nonce": nonce,
         "aud": verifier_data['did'],
-        "state": request_id,
-        "raw": verifier_data.get('raw')
     }
-    red.setex(request_id, 1000, json.dumps(payload))
+    red.setex(tool_call_id, 1000, json.dumps(payload))
     authorization_request_displayed = { 
             "client_id":  verifier_data['did'],
-            "request_uri": server + "verifier/request_uri/" + request_id 
+            "request_uri": server + "verifier/request_uri/" + tool_call_id 
         }
     qrcode_content = "openid-vc://" + '?' + urlencode(authorization_request_displayed)
     logging.info("QRcode = %s", qrcode_content)
@@ -129,29 +127,29 @@ def get_qrcode(client_id, request_id, server):
     return qrcode_content
 
 
-
-def initiate_oidc4vp_request(session_id, server):
-    request_id = str(uuid.uuid4())
-    authorization_request = get_qrcode("any", request_id, server)
-    red.setex(request_id + "_MCP", 10000, json.dumps({
+# Tool
+def initiate_oidc4vp_request(session_id, server, tool_call_id):
+    #tool_call_id = str(uuid.uuid4())
+    authorization_request = get_qrcode("any", tool_call_id, server)
+    red.setex(tool_call_id + "_tool", 10000, json.dumps({
         "status": "pending",
         "session_id": session_id
         }))
     data = {
         "status": "pending",
-        "request_id": request_id,
+        "tool_call_id": tool_call_id,
         "session_id": session_id,
         "authorization_request": authorization_request,
         "qr_code_base64": generate_qr_base64(authorization_request)
     }
-    logging.info("Response MCP tools 1 wirt QR code")
+    logging.info("Response of the tool initiate_oidc4vp_request")
     return data
     
 
 # request uri endpoint for wallet
-def request_uri(stream_id):
+def request_uri(tool_call_id):
     try:
-        data = json.loads(red.get(stream_id).decode())
+        data = json.loads(red.get(tool_call_id).decode())
     except Exception:
         logging.info("request expired or already used")
         return jsonify("Request timeout"), 400
@@ -164,13 +162,13 @@ def request_uri(stream_id):
 
 
 # --- Wallet POSTs VP token response here ---
-def response_endpoint(request_id):
+def response_endpoint(tool_call_id):
     """
     response endpoint for OIDC4VP draft 13, direct_post, no encryption
     """
     logging.info("Enter wallet response endpoint")
     try:
-        data = json.loads(red.get(request_id).decode())
+        data = json.loads(red.get(tool_call_id).decode())
     except Exception:
         logging.error("request timeout, data not available in redis")
         return jsonify("Request timeout"), 408
@@ -232,8 +230,9 @@ def response_endpoint(request_id):
                 logging.error("i = %s", i)
                 logging.error("_disclosure excluded = %s", _disclosure)
     
-    session_id = json.loads(red.get(request_id + "_MCP").decode())["session_id"]
-
+    session_id = json.loads(red.get(tool_call_id + "_tool").decode())["session_id"]
+    
+    # remove useless claims
     claims.pop("status", None)
     claims.pop("_sd", None)
     claims.pop("iss", None)
@@ -244,7 +243,7 @@ def response_endpoint(request_id):
     claims.pop("iat", None)
     
     session_data = {
-            'request_id': request_id,
+            'tool_call_id': tool_call_id,
             'session_id': session_id, 
         }
     if error_description:
@@ -264,7 +263,7 @@ def response_endpoint(request_id):
     red.publish('chatbot', json.dumps(session_data))
 
     # delete request and return to wallet
-    red.delete(request_id)
+    red.delete(tool_call_id)
     return jsonify('ok')
 
 
